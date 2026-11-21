@@ -20,11 +20,13 @@ from home_os.security.rate_limit import RateLimitExceeded
 
 
 def _is_trusted_local_or_lan_client(host: str) -> bool:
+    from home_os.services.discovery import is_lan_or_cgnat_ip
+
     if host in ("testclient", "local", "localhost", ""):
         return True
     try:
         ip = ipaddress.ip_address(host.split("%", 1)[0])
-        return ip.is_loopback or ip.is_private or ip.is_link_local
+        return ip.is_loopback or is_lan_or_cgnat_ip(ip) or ip.is_link_local
     except ValueError:
         return False
 

@@ -178,12 +178,16 @@ def initiate_pairing(
     db: Session = Depends(get_db),
     runtime: HomeOsRuntime = Depends(get_runtime),
 ):
-    from home_os.services.discovery import get_primary_lan_ipv4
+    from home_os.services.discovery import _is_safe_lan_ip, get_primary_lan_ipv4
 
     req_host = request.url.hostname or ""
-    if payload.hub_host and payload.hub_host not in ("127.0.0.1", "localhost", "0.0.0.0"):
+    if (
+        payload.hub_host
+        and payload.hub_host not in ("127.0.0.1", "localhost", "0.0.0.0")
+        and _is_safe_lan_ip(payload.hub_host)
+    ):
         host = payload.hub_host
-    elif req_host and req_host not in ("127.0.0.1", "localhost", "0.0.0.0"):
+    elif req_host and req_host not in ("127.0.0.1", "localhost", "0.0.0.0") and _is_safe_lan_ip(req_host):
         host = req_host
     else:
         host = get_primary_lan_ipv4()

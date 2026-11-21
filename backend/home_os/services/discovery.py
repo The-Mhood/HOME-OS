@@ -79,6 +79,19 @@ MACOS_ARP_LINE_RE = re.compile(
     r"^(?P<host>\S+)\s+\((?P<ip>\d+\.\d+\.\d+\.\d+)\)\s+at\s+(?P<mac>[0-9a-fA-F:]{11,17})\s+on\s+(?P<iface>\S+)"
 )
 
+CGNAT_IPV4_NET = ipaddress.ip_network("100.64.0.0/10")
+
+
+def is_lan_or_cgnat_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """True for RFC1918/ULA private IPs as well as RFC6598 100.64.0.0/10 Wi-Fi/CPE subnets."""
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
+    if ip.is_private:
+        return True
+    if isinstance(ip, ipaddress.IPv4Address) and ip in CGNAT_IPV4_NET:
+        return True
+    return False
+
 
 def _is_virtual_iface(name: str) -> bool:
     low = name.lower()
@@ -218,7 +231,7 @@ def list_lan_interfaces() -> list[dict[str, Any]]:
                     continue
                 if not isinstance(ip_obj, ipaddress.IPv4Address):
                     continue
-                if ip_obj.is_loopback or ip_obj.is_link_local or not ip_obj.is_private:
+                if ip_obj.is_loopback or ip_obj.is_link_local or not is_lan_or_cgnat_ip(ip_obj):
                     continue
                 seen_ips.add(ip_info.ip)
                 entry = {
@@ -304,7 +317,7 @@ def _is_usable_peer_ip(host: str | None, local_ips: set[str] | None = None) -> b
             return False
         if isinstance(ip, ipaddress.IPv4Address) and clean_host.endswith((".0", ".255")):
             return False
-        return ip.is_private
+        return is_lan_or_cgnat_ip(ip)
     except ValueError:
         return False
 
@@ -312,7 +325,7 @@ def _is_usable_peer_ip(host: str | None, local_ips: set[str] | None = None) -> b
 def _is_safe_lan_ip(host: str) -> bool:
     try:
         ip = ipaddress.ip_address(host)
-        return ip.is_private or ip.is_loopback or ip.is_link_local
+        return is_lan_or_cgnat_ip(ip) or ip.is_loopback or ip.is_link_local
     except ValueError:
         return False
 

@@ -256,3 +256,76 @@ async def test_secure_qr_and_pin_pairing_enrollment_and_rotation(tmp_data_dir: P
         rotated = pairing.rotate_credentials(db=db, device_id=enrolled.device.id, actor_user_id="u-1")
         assert rotated.key_version == 2
         assert rotated.device_token != enrolled.device_token
+
+
+def test_virtual_vpn_interfaces_filtered_in_favor_of_physical_wifi(monkeypatch):
+    from types import SimpleNamespace
+    import home_os.services.discovery as disc
+
+    fake_adapters = [
+        SimpleNamespace(
+            name="utun4",
+            ips=[SimpleNamespace(ip="10.8.0.2", network_prefix=24)],
+        ),
+        SimpleNamespace(
+            name="awdl0",
+            ips=[SimpleNamespace(ip="169.254.12.34", network_prefix=16)],
+        ),
+        SimpleNamespace(
+            name="en0",
+            ips=[SimpleNamespace(ip="192.168.1.42", network_prefix=24)],
+        ),
+    ]
+    monkeypatch.setattr(disc, "_get_macos_physical_wifi_ips", lambda: [])
+    monkeypatch.setattr(disc.ifaddr, "get_adapters", lambda: fake_adapters)
+
+    ifaces = disc.list_lan_interfaces()
+    assert len(ifaces) == 1
+    assert ifaces[0]["interface"] == "en0"
+    assert ifaces[0]["ip"] == "192.168.1.42"
+    assert disc.get_primary_lan_ipv4() == "192.168.1.42"
+
+
+def test_lan_and_cgnat_trust_and_network_diagnostics(tmp_data_dir: Path):
+    from fastapi.testclient import TestClient
+    from home_os.config import Settings
+    from home_os.main import _is_trusted_local_or_lan_client, create_app
+
+    assert _is_trusted_local_or_lan_client("192.168.1.50") is True
+    assert _is_trusted_local_or_lan_client("172.20.10.1") is True
+    assert _is_trusted_local_or_lan_client("100.64.12.9") is True
+    assert _is_trusted_local_or_lan_client("8.8.8.8") is False
+
+    app = create_app(Settings(data_dir=tmp_data_dir))
+    with TestClient(app) as client:
+        setup_res = client.post(
+            "/api/v1/auth/setup",
+            json={"username": "owner", "display_name": "Owner", "password": "StrongPassword123!"},
+        )
+        token = setup_res.json()["access_token"]
+
+        diag_res = client.get("/api/v1/system/network-diagnostics", headers={"X-HomeOS-Token": token})
+        assert diag_res.status_code == 200
+        diag = diag_res.json()
+        assert "primary_lan_ip" in diag
+        assert "lan_socket_reachable" in diag
+        assert "lan_interfaces" in diag
+
+        # Explicit LAN IP override works while public IP override is rejected
+        override_res = client.post(
+            "/api/v1/pairing/initiate",
+            headers={"X-HomeOS-Token": token},
+            json={"adapter_type": "ios_companion", "hub_host": "192.168.8.105"},
+        )
+        assert override_res.status_code == 200
+        assert override_res.json()["lan_host"] == "192.168.8.105"
+        assert "http://192.168.8.105:" in override_res.json()["qr_uri"]
+
+        unsafe_res = client.post(
+            "/api/v1/pairing/initiate",
+            headers={"X-HomeOS-Token": token},
+            json={"adapter_type": "ios_companion", "hub_host": "8.8.8.8"},
+        )
+        assert unsafe_res.status_code == 200
+        assert unsafe_res.json()["lan_host"] != "8.8.8.8"
+
