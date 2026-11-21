@@ -1,0 +1,167 @@
+name: HOME OS CI & Multi-Platform Release Pipeline
+
+on:
+  push:
+    branches: [main, "arena/**"]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  backend-and-linux-agent:
+    name: Core Engine & Native Linux Agent (Python 3.11)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Core & Linux Agent Editable + Test Dependencies
+        run: |
+          python -m pip install --upgrade pip build
+          pip install -e ".[dev]" -e "./agents/linux"
+
+      - name: Verify Alembic Schema Migration Upgrade & Downgrade
+        run: |
+          export HOMEOS_DATA_DIR="${RUNNER_TEMP}/homeos-ci"
+          mkdir -p "$HOMEOS_DATA_DIR"
+          export HOMEOS_DATABASE_URL="sqlite+aiosqlite:///${HOMEOS_DATA_DIR}/ci.db"
+          alembic upgrade head
+          alembic downgrade base
+          alembic upgrade head
+
+      - name: Run Automated Test Suite (Unit, Integration, Live Dual-Agent E2E, Security, Load)
+        run: |
+          pytest -v --cov=home_os --cov=homeos_linux_agent --cov-report=term-missing
+
+      - name: Build Installable Python Wheels & Source Tarballs
+        run: |
+          bash scripts/build-release.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: python-core-and-linux-agent-packages
+          path: releases/
+
+  desktop-ui-verify:
+    name: Desktop Command Environment UI & Typecheck (Vitest + Vite)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-web-bundle
+          path: |
+            desktop/dist/
+            desktop/dist-electron/
+
+  desktop-electron-installers:
+    name: Electron Native Installers (${{ matrix.os }})
+    needs: [desktop-ui-verify]
+    if: startsWith(github.ref, 'refs/tags/v')
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-14]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install Dependencies + Electron Packaging Tooling
+        run: |
+          npm ci
+          npm install --no-save electron@^33.2.0 electron-builder@^25.1.8
+      - name: Package Signed/Unsigned OS Installer
+        run: |
+          npm run build
+          npx electron-builder --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-installer-${{ matrix.os }}
+          path: desktop/release-builds/*
+
+  windows-native-agent:
+    name: Windows Native Agent (.NET 8 Worker Service)
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: agents/windows
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Build & Publish Self-Contained Windows Service Binary
+        run: |
+          dotnet restore HomeOs.WindowsAgent.sln
+          dotnet publish HomeOs.WindowsAgent/HomeOs.WindowsAgent.csproj -c Release -r win-x64 --self-contained true -o publish
+      - uses: actions/upload-artifact@v4
+        with:
+          name: homeos-windows-agent-win-x64
+          path: agents/windows/publish/
+
+  apple-native-targets:
+    name: macOS Native Agent & iOS Companion (Swift 5.9)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build macOS Native Agent Release Binary
+        working-directory: agents/macos
+        run: swift build -c release
+      - name: Typecheck iOS Companion Package Target
+        working-directory: companions/ios
+        run: |
+          brew install xcodegen
+          xcodegen generate
+          xcodebuild -project HomeOsCompanion.xcodeproj -scheme HomeOsCompanion -sdk iphonesimulator -configuration Debug CODE_SIGNING_ALLOWED=NO build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: homeos-macos-agent-universal
+          path: agents/macos/.build/release/homeos-macos-agent
+
+  android-native-companion:
+    name: Android Companion App (Kotlin / PlayStore + Direct Flavors)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: companions/android
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+      - name: Run Unit Tests & Assemble Both Compliance Flavors
+        run: |
+          gradle testPlayStoreDebugUnitTest assemblePlayStoreDebug assembleDirectCompanionDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: homeos-android-companion-apks
+          path: companions/android/app/build/outputs/apk/**/*.apk

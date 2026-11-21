@@ -1,0 +1,32 @@
+{
+  "product": "HOME OS",
+  "version": "1.0.0",
+  "generated_at": "2026-11-21T02:29:48.922872+00:00",
+  "artifacts": [
+    {
+      "filename": "home-os-desktop-bundle-1.0.0.tar.gz",
+      "size_bytes": 76233,
+      "sha256": "9b342cbf9a5d2b387a2ced3f1b535c3596dd8205343d325694af619373bd483d"
+    },
+    {
+      "filename": "home_os-1.0.0-py3-none-any.whl",
+      "size_bytes": 83307,
+      "sha256": "e448f690de74ba314e37a0a84056c6766dd1e2a4191ce589596d017ee00acaad"
+    },
+    {
+      "filename": "home_os-1.0.0.tar.gz",
+      "size_bytes": 68408,
+      "sha256": "e3a2df653fad54e35485ff109f2de4ff923dc46e7fab7785674dff1a295696ab"
+    },
+    {
+      "filename": "homeos_linux_agent-1.0.0-py3-none-any.whl",
+      "size_bytes": 11255,
+      "sha256": "0d518fe023d1c1a60ccf95e92171d6a60119ea7cb9c67cf40d0d655336c144cb"
+    },
+    {
+      "filename": "homeos_linux_agent-1.0.0.tar.gz",
+      "size_bytes": 9955,
+      "sha256": "a21fc4e3ead25e90a5aa64af09c9534961f2daa62c3936287cc0893a4f4468fc"
+    }
+  ]
+}

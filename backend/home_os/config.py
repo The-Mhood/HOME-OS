@@ -34,6 +34,9 @@ class Settings(BaseSettings):
             "app://.",
         ]
     )
+    cors_origin_regex: str | None = Field(
+        default=r"^https?://(localhost|127\.0\.0\.1|[a-z0-9-]+\.e2b\.app)(:\d+)?$"
+    )
 
     @property
     def resolved_database_url(self) -> str:

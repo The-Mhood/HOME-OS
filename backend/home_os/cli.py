@@ -21,9 +21,14 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("migrate", help="Apply Alembic database migrations to head")
     sub.add_parser("verify-audit", help="Cryptographically verify the SHA-256 hash-chained audit log")
+    sub.add_parser("version", help="Print HOME OS Core Engine version")
 
     args = parser.parse_args(argv)
     settings = Settings()
+
+    if args.cmd == "version":
+        print(f"{settings.app_name} v{settings.app_version}")
+        return 0
 
     if args.cmd == "migrate":
         cfg = Config("alembic.ini")
