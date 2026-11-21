@@ -1,4 +1,5 @@
 import asyncio
+import ipaddress
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -12,9 +13,20 @@ from home_os.api.routes_agent import router as agent_router
 from home_os.api.routes_auth_and_system import router as auth_router
 from home_os.api.routes_comms_media_auto_sec import router as domain_router
 from home_os.api.routes_devices import router as devices_router
+from home_os.api.routes_mobile_companion import router as mobile_companion_router
 from home_os.config import Settings, get_settings
 from home_os.runtime import HomeOsRuntime
 from home_os.security.rate_limit import RateLimitExceeded
+
+
+def _is_trusted_local_or_lan_client(host: str) -> bool:
+    if host in ("testclient", "local", "localhost", ""):
+        return True
+    try:
+        ip = ipaddress.ip_address(host.split("%", 1)[0])
+        return ip.is_loopback or ip.is_private or ip.is_link_local
+    except ValueError:
+        return False
 
 
 async def _automation_schedule_worker(runtime: HomeOsRuntime) -> None:
@@ -75,6 +87,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.middleware("http")
     async def security_and_rate_limit_middleware(request: Request, call_next):
         client_ip = request.client.host if request.client else "local"
+        if not _is_trusted_local_or_lan_client(client_ip):
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "Public internet access is blocked; HOME OS accepts local/LAN clients only."},
+            )
         if request.url.path.startswith("/api/"):
             try:
                 runtime.rate_limiter.check(
@@ -98,6 +115,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(devices_router, prefix="/api/v1", tags=["Devices & Commands"])
     app.include_router(agent_router, prefix="/api/v1", tags=["Agent Channels"])
     app.include_router(domain_router, prefix="/api/v1", tags=["Communications, Media, Automations & Security"])
+    app.include_router(mobile_companion_router, tags=["Mobile QR Pairing & Companion"])
 
     # Serve compiled desktop web bundle if present (supports repo checkout, installed wheel, and Electron bundle)
     candidate_dist_dirs = [

@@ -178,7 +178,16 @@ def initiate_pairing(
     db: Session = Depends(get_db),
     runtime: HomeOsRuntime = Depends(get_runtime),
 ):
-    host = payload.hub_host or request.url.hostname or runtime.settings.bind_host
+    from home_os.services.discovery import get_primary_lan_ipv4
+
+    req_host = request.url.hostname or ""
+    if payload.hub_host and payload.hub_host not in ("127.0.0.1", "localhost", "0.0.0.0"):
+        host = payload.hub_host
+    elif req_host and req_host not in ("127.0.0.1", "localhost", "0.0.0.0"):
+        host = req_host
+    else:
+        host = get_primary_lan_ipv4()
+
     port = payload.hub_port or runtime.settings.bind_port
     res = runtime.pairing.initiate_pairing(
         db=db,
@@ -193,6 +202,9 @@ def initiate_pairing(
         "session_id": res.session_id,
         "pin": res.pin,
         "qr_uri": res.qr_uri,
+        "deep_link_uri": res.deep_link_uri,
+        "lan_host": host,
+        "lan_port": port,
         "qr_svg": res.qr_svg,
         "challenge_nonce": res.challenge_nonce,
         "expires_at": res.expires_at.isoformat(),

@@ -114,7 +114,58 @@ def test_xxe_attack_in_upnp_xml_is_blocked():
 
 def test_mac_oui_vendor_lookup():
     assert lookup_mac_vendor("3C:22:FB:11:22:33") == "Apple"
+    assert lookup_mac_vendor("f0:18:98:1:2:a") == "Apple"
     assert lookup_mac_vendor("DC:A6:32:AA:BB:CC") == "Raspberry Pi"
+
+
+def test_macos_arp_table_parsing_discovers_wifi_peers_and_skips_loopback():
+    from home_os.services.discovery import classify_discovered_endpoint, parse_macos_arp_output
+
+    sample_arp = """
+router.local (192.168.1.1) at 4:d9:f5:a:1b:2 on en0 ifscope [ethernet]
+? (192.168.1.24) at f0:18:98:3:c:99 on en0 ifscope [ethernet]
+? (192.168.1.55) at 24:fd:5b:10:20:30 on en0 ifscope [ethernet]
+? (192.168.1.99) at (incomplete) on en0 ifscope [ethernet]
+localhost (127.0.0.1) at 3c:22:fb:0:0:1 on lo0 ifscope permanent [ethernet]
+? (224.0.0.251) at 1:0:5e:0:0:fb on en0 ifscope permanent [ethernet]
+? (192.168.1.255) at ff:ff:ff:ff:ff:ff on en0 ifscope [ethernet]
+"""
+    eps = parse_macos_arp_output(sample_arp, local_ips={"127.0.0.1", "192.168.1.10"})
+    assert len(eps) == 3
+    by_ip = {e.ip_address: e for e in eps}
+    assert by_ip["192.168.1.1"].mac_address == "04:D9:F5:0A:1B:02"
+    assert by_ip["192.168.1.24"].mac_address == "F0:18:98:03:0C:99"
+    assert classify_discovered_endpoint(by_ip["192.168.1.24"])["manufacturer"] == "Apple"
+    assert classify_discovered_endpoint(by_ip["192.168.1.55"])["manufacturer"] == "Samsung"
+
+
+def test_mobile_qr_companion_page_serves_and_expires_after_use(tmp_data_dir: Path):
+    from fastapi.testclient import TestClient
+    from home_os.config import Settings
+    from home_os.main import create_app
+
+    app = create_app(Settings(data_dir=tmp_data_dir))
+    with TestClient(app) as client:
+        setup_res = client.post(
+            "/api/v1/auth/setup",
+            json={"username": "owner", "display_name": "Owner", "password": "StrongPassword123!"},
+        )
+        assert setup_res.status_code == 200
+        token = setup_res.json()["access_token"]
+
+        init_res = client.post(
+            "/api/v1/pairing/initiate",
+            headers={"X-HomeOS-Token": token},
+            json={"adapter_type": "ios_companion", "requested_permissions": ["telemetry:read"]},
+        )
+        assert init_res.status_code == 200
+        qr_uri = init_res.json()["qr_uri"]
+        qr_path = "/" + qr_uri.split("/", 3)[3]
+
+        page_res = client.get(qr_path)
+        assert page_res.status_code == 200
+        assert "HOME OS Companion Pairing" in page_res.text
+        assert "Approve &amp; Connect This Device" in page_res.text
 
 
 @pytest.mark.asyncio
@@ -147,8 +198,10 @@ async def test_secure_qr_and_pin_pairing_enrollment_and_rotation(tmp_data_dir: P
             requested_permissions=["telemetry:read", "notifications:read", "flashlight:control"],
         )
         assert len(initiation.pin) == 6
-        assert initiation.qr_uri.startswith("homeos://pair?")
+        assert initiation.qr_uri.startswith("http://192.168.1.10:8420/p/")
+        assert initiation.deep_link_uri.startswith("homeos://pair?")
         assert "<svg" in initiation.qr_svg
+        assert 'shape-rendering="crispEdges"' in initiation.qr_svg
 
         # Wrong PIN must fail
         with pytest.raises(PairingError):

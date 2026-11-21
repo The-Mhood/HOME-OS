@@ -114,13 +114,13 @@ async function ensureLocalBackendRunning(port: string): Promise<boolean> {
   ].join(':');
 
   try {
-    backendProcess = spawn(binPath, ['serve', '--host', '127.0.0.1', '--port', port], {
+    backendProcess = spawn(binPath, ['serve', '--host', '0.0.0.0', '--port', port], {
       cwd: dataDir,
       stdio: 'ignore',
       env: {
         ...process.env,
         PATH: augmentedPath,
-        HOMEOS_BIND_HOST: '127.0.0.1',
+        HOMEOS_BIND_HOST: '0.0.0.0',
         HOMEOS_DATA_DIR: dataDir,
         ...(staticDir ? { HOMEOS_STATIC_DIR: staticDir } : {}),
       },

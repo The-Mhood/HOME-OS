@@ -41,6 +41,7 @@ class PairingInitiationResult:
     pin: str
     qr_token: str
     qr_uri: str
+    deep_link_uri: str
     qr_svg: str
     challenge_nonce: str
     expires_at: datetime
@@ -61,13 +62,30 @@ def _ensure_utc(dt_val: datetime) -> datetime:
 
 
 def _render_qr_svg(data: str) -> str:
-    qr = qrcode.QRCode(version=None, box_size=8, border=2)
+    """Renders an ISO-18004 compliant, Retina-crisp QR SVG with a full 4-module white quiet zone."""
+    qr = qrcode.QRCode(
+        version=None,
+        error_correction=qrcode.constants.ERROR_CORRECT_M,
+        box_size=10,
+        border=4,
+    )
     qr.add_data(data)
     qr.make(fit=True)
-    img = qr.make_image(image_factory=qrcode.image.svg.SvgPathImage)
-    buf = io.BytesIO()
-    img.save(buf)
-    return buf.getvalue().decode("utf-8")
+    matrix = qr.get_matrix()
+    size = len(matrix)
+    path_cmds: list[str] = []
+    for y, row in enumerate(matrix):
+        for x, dark in enumerate(row):
+            if dark:
+                path_cmds.append(f"M{x},{y}h1v1h-1z")
+    d_attr = "".join(path_cmds)
+    return (
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {size} {size}" '
+        f'width="210" height="210" shape-rendering="crispEdges">'
+        f'<rect width="{size}" height="{size}" fill="#FFFFFF"/>'
+        f'<path d="{d_attr}" fill="#000000"/>'
+        f"</svg>"
+    )
 
 
 DEFAULT_PLATFORM_CAPABILITIES: dict[str, list[dict[str, Any]]] = {
@@ -159,7 +177,7 @@ class PairingService:
         requested_permissions: list[str] | None = None,
     ) -> PairingInitiationResult:
         pin = generate_pairing_pin()
-        qr_token = generate_secure_token(24)
+        qr_token = generate_secure_token(16)
         nonce = generate_secure_token(16)
         now = datetime.now(timezone.utc)
         expires_at = now + timedelta(seconds=self.ttl_seconds)
@@ -180,18 +198,20 @@ class PairingService:
         db.add(session)
         db.flush()
 
-        query = urlencode(
+        # Short, universally scannable HTTP URL for iPhone/Android Camera & browsers on the same Wi-Fi
+        qr_uri = f"http://{hub_host}:{hub_port}/p/{qr_token}"
+
+        deep_query = urlencode(
             {
-                "session": session.id,
-                "host": hub_host,
-                "port": hub_port,
+                "session_id": session.id,
+                "hub": f"http://{hub_host}:{hub_port}",
                 "token": qr_token,
                 "nonce": nonce,
                 "fp": self.tls_fingerprint[:32],
                 "adapter": adapter_type,
             }
         )
-        qr_uri = f"homeos://pair?{query}"
+        deep_link_uri = f"homeos://pair?{deep_query}"
         qr_svg = _render_qr_svg(qr_uri)
 
         append_audit_log(
@@ -203,7 +223,7 @@ class PairingService:
             actor_id=user_id,
             device_id=device_id,
             outcome="pending",
-            details={"pairing_session_id": session.id, "adapter_type": adapter_type},
+            details={"pairing_session_id": session.id, "adapter_type": adapter_type, "lan_host": hub_host},
         )
         db.commit()
 
@@ -212,6 +232,7 @@ class PairingService:
             pin=pin,
             qr_token=qr_token,
             qr_uri=qr_uri,
+            deep_link_uri=deep_link_uri,
             qr_svg=qr_svg,
             challenge_nonce=nonce,
             expires_at=expires_at,

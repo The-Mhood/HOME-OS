@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Plus, QrCode, Radar, Trash2 } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Copy, Plus, QrCode, Radar, Trash2 } from 'lucide-react';
 import { apiRequest } from '../api/client';
 import type { Device, Room } from '../types/models';
 
@@ -15,6 +15,9 @@ interface PairingSessionResponse {
   session_id: string;
   pin: string;
   qr_uri: string;
+  deep_link_uri?: string;
+  lan_host?: string;
+  lan_port?: number;
   qr_svg: string;
   expires_at: string;
 }
@@ -71,6 +74,16 @@ export const DevicesView: React.FC<Props> = ({
 
   const registered = devices.filter((d) => d.is_registered);
   const unpaired = devices.filter((d) => !d.is_registered);
+  const prevRegCount = useRef<number>(registered.length);
+
+  useEffect(() => {
+    if (showPairModal && pairingSession && registered.length > prevRegCount.current) {
+      setShowPairModal(false);
+      setPairingSession(null);
+      onNotify('Device paired & authenticated over Wi-Fi!');
+    }
+    prevRegCount.current = registered.length;
+  }, [registered.length, showPairModal, pairingSession, onNotify]);
 
   const startPairing = async (device?: Device) => {
     const adapter = device && device.adapter_type !== 'generic_network' ? device.adapter_type : pairAdapter;
@@ -445,15 +458,28 @@ export const DevicesView: React.FC<Props> = ({
               <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                 <div style={{ display: 'flex', gap: '18px', alignItems: 'center', flexWrap: 'wrap' }}>
                   <div
-                    style={{ background: '#fff', padding: '10px', borderRadius: '10px', width: '165px', height: '165px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                    style={{
+                      background: '#ffffff',
+                      padding: '8px',
+                      borderRadius: '12px',
+                      width: '226px',
+                      height: '226px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                    }}
                     dangerouslySetInnerHTML={{ __html: pairingSession.qr_svg }}
                   />
-                  <div style={{ flex: 1 }}>
+                  <div style={{ flex: 1, minWidth: '210px' }}>
                     <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>6-Digit Pairing PIN</div>
                     <div className="mono tabular" style={{ fontSize: '28px', fontWeight: 700, letterSpacing: '0.15em', color: 'var(--accent-primary)' }}>
                       {pairingSession.pin}
                     </div>
-                    <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', marginTop: '6px' }}>
+                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '8px' }}>
+                      Scan with your <strong>iPhone or Android Camera</strong> on the same Wi-Fi network to pair instantly.
+                    </div>
+                    <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', marginTop: '8px' }}>
                       Session ID: <span className="mono">{pairingSession.session_id}</span>
                     </div>
                     <div style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>
@@ -461,6 +487,39 @@ export const DevicesView: React.FC<Props> = ({
                     </div>
                   </div>
                 </div>
+
+                <div style={{ background: 'var(--bg-canvas)', padding: '10px 12px', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}>
+                  <div style={{ overflow: 'hidden' }}>
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '2px' }}>
+                      Wi-Fi Companion Pairing Link (open on phone if camera doesn&apos;t scan):
+                    </div>
+                    <a
+                      href={pairingSession.qr_uri}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mono"
+                      style={{ color: 'var(--accent-primary)', fontSize: '12px', wordBreak: 'break-all' }}
+                    >
+                      {pairingSession.qr_uri}
+                    </a>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    onClick={() => {
+                      void navigator.clipboard?.writeText(pairingSession.qr_uri);
+                      onNotify('Copied Wi-Fi pairing URL to clipboard.');
+                    }}
+                  >
+                    <Copy size={13} /> Copy
+                  </button>
+                </div>
+
+                {pairingSession.lan_host === '127.0.0.1' && (
+                  <div style={{ fontSize: '12px', color: '#fcd34d', background: 'rgba(245, 158, 11, 0.12)', padding: '8px 10px', borderRadius: '8px' }}>
+                    Note: No active private Wi-Fi IPv4 address was detected on this machine, so the link defaulted to 127.0.0.1. Connect to Wi-Fi so other devices can reach this hub.
+                  </div>
+                )}
 
                 {(pairAdapter === 'linux_agent' || pairAdapter === 'macos_agent' || pairAdapter === 'windows_agent') && (
                   <div style={{ background: 'var(--bg-canvas)', padding: '10px', borderRadius: '8px' }}>
