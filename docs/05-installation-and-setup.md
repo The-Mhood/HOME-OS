@@ -72,10 +72,12 @@ Secrets are encrypted using Windows **DPAPI (`ProtectedData`)**.
 
 ### C. macOS 13+ Native Agent (`agents/macos`)
 ```bash
-cd agents/macos
-swift build -c release
-.build/release/homeos-macos-agent enroll --hub https://<HUB_IP>:8420 --code <6_DIGIT_CODE> --name "MacBook-Pro"
-.build/release/homeos-macos-agent run
+# Full one-command macOS install (Core Hub + Desktop UI + Swift macOS Agent):
+bash scripts/install-macos.sh
+
+# Pair using QR URI or Session ID + 6-digit PIN from Devices -> Pair New Device:
+~/.local/bin/homeos-mac-agent pair --qr "homeos://pair?..." --name "MacBook-Pro"
+~/.local/bin/homeos-mac-agent run
 ```
 Secrets are stored in **macOS Keychain**. Grant Screen Recording and Accessibility under **System Settings → Privacy & Security** only if remote display snapshots or input injection are desired.
 

@@ -462,13 +462,17 @@ export const DevicesView: React.FC<Props> = ({
                   </div>
                 </div>
 
-                {pairAdapter === 'linux_agent' && (
+                {(pairAdapter === 'linux_agent' || pairAdapter === 'macos_agent' || pairAdapter === 'windows_agent') && (
                   <div style={{ background: 'var(--bg-canvas)', padding: '10px', borderRadius: '8px' }}>
                     <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' }}>
-                      Run on target Linux host to enroll:
+                      Run on target {pairAdapter === 'macos_agent' ? 'Mac' : pairAdapter === 'windows_agent' ? 'Windows PC' : 'Linux host'} to enroll:
                     </div>
                     <div className="mono" style={{ wordBreak: 'break-all', color: '#34d399' }}>
-                      homeos-linux-agent pair --session {pairingSession.session_id} --pin {pairingSession.pin}
+                      {pairAdapter === 'macos_agent'
+                        ? `homeos-mac-agent pair --session ${pairingSession.session_id} --pin ${pairingSession.pin}`
+                        : pairAdapter === 'windows_agent'
+                        ? `HomeOs.WindowsAgent.exe pair --session ${pairingSession.session_id} --pin ${pairingSession.pin}`
+                        : `homeos-linux-agent pair --session ${pairingSession.session_id} --pin ${pairingSession.pin}`}
                     </div>
                   </div>
                 )}

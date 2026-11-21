@@ -141,7 +141,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: homeos-macos-agent-universal
-          path: agents/macos/.build/release/homeos-macos-agent
+          path: agents/macos/.build/release/homeos-mac-agent
 
   android-native-companion:
     name: Android Companion App (Kotlin / PlayStore + Direct Flavors)
