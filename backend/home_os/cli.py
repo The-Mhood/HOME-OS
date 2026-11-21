@@ -31,9 +31,21 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.cmd == "migrate":
-        cfg = Config("alembic.ini")
-        cfg.set_main_option("sqlalchemy.url", settings.resolved_database_url)
-        command.upgrade(cfg, "head")
+        from pathlib import Path
+        ini_candidates = [
+            Path("alembic.ini"),
+            Path(__file__).resolve().parents[2] / "alembic.ini",
+        ]
+        ini_path = next((p for p in ini_candidates if p.exists()), None)
+        if ini_path is not None:
+            cfg = Config(str(ini_path))
+            cfg.set_main_option("script_location", str(ini_path.parent / "alembic"))
+            cfg.set_main_option("sqlalchemy.url", settings.resolved_database_url)
+            command.upgrade(cfg, "head")
+        else:
+            from home_os.db.models import Base
+            engine, _ = create_db_engine_and_session(settings.resolved_database_url)
+            Base.metadata.create_all(bind=engine)
         print(f"Database migrated successfully: {settings.resolved_database_url}")
         return 0
 

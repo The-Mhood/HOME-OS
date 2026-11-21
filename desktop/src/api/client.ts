@@ -1,14 +1,22 @@
 const TOKEN_KEY = 'homeos_session_token';
 
 export function getStoredToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY);
+  try {
+    return localStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
 }
 
 export function setStoredToken(token: string | null): void {
-  if (token) {
-    localStorage.setItem(TOKEN_KEY, token);
-  } else {
-    localStorage.removeItem(TOKEN_KEY);
+  try {
+    if (token) {
+      localStorage.setItem(TOKEN_KEY, token);
+    } else {
+      localStorage.removeItem(TOKEN_KEY);
+    }
+  } catch {
+    // ignore storage errors
   }
 }
 
@@ -31,6 +39,7 @@ export async function apiRequest<T>(
   const headers = new Headers(options.headers || {});
   if (token) {
     headers.set('Authorization', `Bearer ${token}`);
+    headers.set('X-HomeOS-Token', token);
   }
   if (!(options.body instanceof FormData) && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
@@ -55,6 +64,12 @@ export async function apiRequest<T>(
     } catch {
       // ignore non-json error body
     }
+    if (resp.status === 401 && token && !path.startsWith('/auth/login') && !path.startsWith('/auth/setup')) {
+      setStoredToken(null);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('homeos:unauthorized'));
+      }
+    }
     throw new ApiError(msg, resp.status, code);
   }
 
@@ -64,7 +79,12 @@ export async function apiRequest<T>(
 export async function fetchAuthorizedBlob(path: string): Promise<{ blob: Blob; sha256: string | null }> {
   const token = getStoredToken();
   const resp = await fetch(`/api/v1${path}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    headers: token
+      ? {
+          Authorization: `Bearer ${token}`,
+          'X-HomeOS-Token': token,
+        }
+      : {},
   });
   if (!resp.ok) {
     throw new ApiError(`Failed to fetch binary stream (${resp.status})`, resp.status);
@@ -90,25 +110,32 @@ export function connectOperatorWebSocket(
 
   const connect = () => {
     if (closedByCaller) return;
-    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    ws = new WebSocket(`${proto}//${window.location.host}/api/v1/ws?token=${encodeURIComponent(token)}`);
-    ws.onopen = () => onStateChange(true);
-    ws.onmessage = (ev) => {
-      try {
-        const parsed = JSON.parse(ev.data);
-        if (parsed && parsed.event_type) {
-          onEvent(parsed);
+    try {
+      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      ws = new WebSocket(`${proto}//${window.location.host}/api/v1/ws?token=${encodeURIComponent(token)}`);
+      ws.onopen = () => onStateChange(true);
+      ws.onmessage = (ev) => {
+        try {
+          const parsed = JSON.parse(ev.data);
+          if (parsed && parsed.event_type) {
+            onEvent(parsed);
+          }
+        } catch {
+          // ignore malformed frame
         }
-      } catch {
-        // ignore malformed frame
-      }
-    };
-    ws.onclose = () => {
+      };
+      ws.onerror = () => {
+        // handled by onclose
+      };
+      ws.onclose = () => {
+        onStateChange(false);
+        if (!closedByCaller) {
+          retryTimer = setTimeout(connect, 3000);
+        }
+      };
+    } catch {
       onStateChange(false);
-      if (!closedByCaller) {
-        retryTimer = setTimeout(connect, 3000);
-      }
-    };
+    }
   };
 
   connect();
@@ -116,6 +143,12 @@ export function connectOperatorWebSocket(
   return () => {
     closedByCaller = true;
     if (retryTimer) clearTimeout(retryTimer);
-    if (ws) ws.close();
+    if (ws) {
+      try {
+        ws.close();
+      } catch {
+        // ignore
+      }
+    }
   };
 }

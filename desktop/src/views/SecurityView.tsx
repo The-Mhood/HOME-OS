@@ -33,14 +33,18 @@ export const SecurityView: React.FC<Props> = ({ onRefreshGlobal, onNotify }) => 
   const [severityFilter, setSeverityFilter] = useState('');
 
   const loadSecurityData = useCallback(async () => {
-    const query = severityFilter ? `?severity=${encodeURIComponent(severityFilter)}` : '';
-    const [permRes, logRes] = await Promise.all([
-      apiRequest<{ matrix: PermissionRow[] }>('/security/permissions'),
-      apiRequest<{ logs: AuditLog[] }>(`/security/audit-logs${query}`),
-    ]);
-    setMatrix(permRes.matrix);
-    setLogs(logRes.logs);
-  }, [severityFilter]);
+    try {
+      const query = severityFilter ? `?severity=${encodeURIComponent(severityFilter)}` : '';
+      const [permRes, logRes] = await Promise.all([
+        apiRequest<{ matrix: PermissionRow[] }>('/security/permissions'),
+        apiRequest<{ logs: AuditLog[] }>(`/security/audit-logs${query}`),
+      ]);
+      setMatrix(permRes.matrix || []);
+      setLogs(logRes.logs || []);
+    } catch (err) {
+      onNotify(err instanceof Error ? err.message : 'Failed to load security data');
+    }
+  }, [severityFilter, onNotify]);
 
   useEffect(() => {
     void loadSecurityData();

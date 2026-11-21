@@ -15,7 +15,8 @@ class Settings(BaseSettings):
     # Secure-by-default: never bind to public interfaces unless explicitly configured
     bind_host: str = Field(default="127.0.0.1")
     bind_port: int = Field(default=8420)
-    data_dir: Path = Field(default=Path("./data"))
+    data_dir: Path = Field(default_factory=lambda: Path.home() / ".local" / "share" / "home-os" / "data")
+    static_dir: Path | None = Field(default=None)
     database_url: str | None = Field(default=None)
 
     # Security settings

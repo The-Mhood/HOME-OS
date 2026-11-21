@@ -13,10 +13,14 @@ export const CommunicationsView: React.FC<Props> = ({ onNotify }) => {
   const [replyTexts, setReplyTexts] = useState<Record<string, string>>({});
 
   const loadComms = useCallback(async () => {
-    const query = sourceFilter !== 'all' ? `?source_type=${encodeURIComponent(sourceFilter)}` : '';
-    const res = await apiRequest<{ items: CommunicationItem[] }>(`/communications${query}`);
-    setItems(res.items);
-  }, [sourceFilter]);
+    try {
+      const query = sourceFilter !== 'all' ? `?source_type=${encodeURIComponent(sourceFilter)}` : '';
+      const res = await apiRequest<{ items: CommunicationItem[] }>(`/communications${query}`);
+      setItems(res.items || []);
+    } catch (err) {
+      onNotify(err instanceof Error ? err.message : 'Failed to load communications');
+    }
+  }, [sourceFilter, onNotify]);
 
   useEffect(() => {
     void loadComms();

@@ -42,13 +42,17 @@ export const SettingsView: React.FC<Props> = ({ onLogout, onNotify }) => {
   const [sessions, setSessions] = useState<SessionRow[]>([]);
 
   const loadSettings = useCallback(async () => {
-    const [sysRes, sessRes] = await Promise.all([
-      apiRequest<SystemSettingsData>('/system/settings'),
-      apiRequest<{ sessions: SessionRow[] }>('/auth/sessions'),
-    ]);
-    setSettings(sysRes);
-    setSessions(sessRes.sessions);
-  }, []);
+    try {
+      const [sysRes, sessRes] = await Promise.all([
+        apiRequest<SystemSettingsData>('/system/settings'),
+        apiRequest<{ sessions: SessionRow[] }>('/auth/sessions'),
+      ]);
+      setSettings(sysRes);
+      setSessions(sessRes.sessions || []);
+    } catch (err) {
+      onNotify(err instanceof Error ? err.message : 'Failed to load system settings');
+    }
+  }, [onNotify]);
 
   useEffect(() => {
     void loadSettings();

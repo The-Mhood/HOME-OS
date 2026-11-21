@@ -1,32 +1,32 @@
 {
   "product": "HOME OS",
   "version": "1.0.0",
-  "generated_at": "2026-11-21T07:24:39.938457+00:00",
+  "generated_at": "2026-11-21T08:31:47.007331+00:00",
   "artifacts": [
     {
       "filename": "home-os-desktop-bundle-1.0.0.tar.gz",
-      "size_bytes": 76296,
-      "sha256": "ef7465c022861470f06329f829a9bc005722f23091816fb4cf965716429bf311"
+      "size_bytes": 79024,
+      "sha256": "668c80d8807dc95662dfb72cd4f3711eddc5738af5520b93457573430dee7943"
     },
     {
       "filename": "home_os-1.0.0-py3-none-any.whl",
-      "size_bytes": 83307,
-      "sha256": "a75dfdd26c9c6d08394c4bc617a50af20ef7982b6176e27f16bec8d9d369a879"
+      "size_bytes": 83657,
+      "sha256": "167347b4beb26d37f84fd92da9826d7844c4681e5f13a8965141e423fb6e5453"
     },
     {
       "filename": "home_os-1.0.0.tar.gz",
-      "size_bytes": 68432,
-      "sha256": "11851901593e47e4b0e3e29c140bd0e0945275bf7d90a0dd4f1d470ce81c2c40"
+      "size_bytes": 68736,
+      "sha256": "58606b79646a78dda7a6ae4ff36264076d4664dfbe57023a1f93e06ee56adbc3"
     },
     {
       "filename": "homeos_linux_agent-1.0.0-py3-none-any.whl",
       "size_bytes": 11255,
-      "sha256": "7ed10a204a71cf2a46c9adc4d2b48c7962e2689b99bd6c1756a5cb2a24c2055e"
+      "sha256": "747c6efd294a85c1bb611eb302c4e90226e1baae7d1acfe9c1a62096a2af4e4b"
     },
     {
       "filename": "homeos_linux_agent-1.0.0.tar.gz",
-      "size_bytes": 9970,
-      "sha256": "6b6695a16929a7b4f22b24735a99225b98df96b5cdae241431d7eca84003732d"
+      "size_bytes": 9985,
+      "sha256": "10fec494c45280776574a43cd2244c4613345c0a2df30b2c751c55a2e636d529"
     }
   ]
 }

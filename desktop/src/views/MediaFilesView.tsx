@@ -38,15 +38,19 @@ export const MediaFilesView: React.FC<Props> = ({ devices, onNotify }) => {
   }, [enrolledDevices, selectedDeviceId]);
 
   const loadAuxData = useCallback(async () => {
-    const [trRes, msRes, miRes] = await Promise.all([
-      apiRequest<{ transfers: FileTransfer[] }>('/files/transfers'),
-      apiRequest<{ sessions: ActiveMediaSession[] }>('/media/sessions'),
-      apiRequest<{ items: MediaItem[] }>('/media/items'),
-    ]);
-    setTransfers(trRes.transfers);
-    setMediaSessions(msRes.sessions);
-    setMediaItems(miRes.items);
-  }, []);
+    try {
+      const [trRes, msRes, miRes] = await Promise.all([
+        apiRequest<{ transfers: FileTransfer[] }>('/files/transfers'),
+        apiRequest<{ sessions: ActiveMediaSession[] }>('/media/sessions'),
+        apiRequest<{ items: MediaItem[] }>('/media/items'),
+      ]);
+      setTransfers(trRes.transfers || []);
+      setMediaSessions(msRes.sessions || []);
+      setMediaItems(miRes.items || []);
+    } catch (err) {
+      onNotify(err instanceof Error ? err.message : 'Failed to load media & transfers');
+    }
+  }, [onNotify]);
 
   const browseDirectory = useCallback(
     async (devId: string, path: string) => {

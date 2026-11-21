@@ -31,6 +31,7 @@ import { SettingsView } from './views/SettingsView';
 
 export const App: React.FC = () => {
   const [booting, setBooting] = useState(true);
+  const [bootError, setBootError] = useState<string | null>(null);
   const [setupRequired, setSetupRequired] = useState(false);
   const [tlsFingerprint, setTlsFingerprint] = useState('');
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -62,8 +63,18 @@ export const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    const onUnauth = () => {
+      setCurrentUser(null);
+      setSummary(null);
+    };
+    window.addEventListener('homeos:unauthorized', onUnauth);
+    return () => window.removeEventListener('homeos:unauthorized', onUnauth);
+  }, []);
+
+  useEffect(() => {
     const init = async () => {
       try {
+        setBootError(null);
         const st = await apiRequest<{ setup_required: boolean; tls_fingerprint: string }>('/auth/status');
         setSetupRequired(st.setup_required);
         setTlsFingerprint(st.tls_fingerprint);
@@ -76,6 +87,12 @@ export const App: React.FC = () => {
             setStoredToken(null);
           }
         }
+      } catch (err) {
+        setBootError(
+          err instanceof Error
+            ? err.message
+            : 'Unable to reach HOME OS Core Engine on 127.0.0.1:8420.'
+        );
       } finally {
         setBooting(false);
       }
@@ -130,6 +147,27 @@ export const App: React.FC = () => {
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <div className="mono" style={{ color: 'var(--text-secondary)' }}>
           Connecting to HOME OS Local Core...
+        </div>
+      </div>
+    );
+  }
+
+  if (bootError) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
+        <div className="card" style={{ maxWidth: '480px', width: '100%' }}>
+          <h3 style={{ fontSize: '17px', fontWeight: 700, marginBottom: '8px' }}>
+            Local Core Server Not Reachable
+          </h3>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '12px' }}>
+            {bootError}
+          </p>
+          <div className="mono" style={{ padding: '10px', background: 'var(--bg-canvas)', borderRadius: '8px', marginBottom: '12px' }}>
+            homeos serve --host 127.0.0.1 --port 8420
+          </div>
+          <button className="btn btn-primary" onClick={() => window.location.reload()}>
+            Retry Connection
+          </button>
         </div>
       </div>
     );

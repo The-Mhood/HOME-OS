@@ -35,13 +35,17 @@ export const AutomationsView: React.FC<Props> = ({ devices, onNotify }) => {
   const [requiresConfirmation, setRequiresConfirmation] = useState(false);
 
   const loadData = useCallback(async () => {
-    const [rRes, runRes] = await Promise.all([
-      apiRequest<{ rules: AutomationRule[] }>('/automations/rules'),
-      apiRequest<{ runs: AutomationRun[] }>('/automations/runs'),
-    ]);
-    setRules(rRes.rules);
-    setRuns(runRes.runs);
-  }, []);
+    try {
+      const [rRes, runRes] = await Promise.all([
+        apiRequest<{ rules: AutomationRule[] }>('/automations/rules'),
+        apiRequest<{ runs: AutomationRun[] }>('/automations/runs'),
+      ]);
+      setRules(rRes.rules || []);
+      setRuns(runRes.runs || []);
+    } catch (err) {
+      onNotify(err instanceof Error ? err.message : 'Failed to load automations');
+    }
+  }, [onNotify]);
 
   useEffect(() => {
     void loadData();

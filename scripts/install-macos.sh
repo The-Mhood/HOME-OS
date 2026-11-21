@@ -64,10 +64,15 @@ echo "[2/4] Building HOME OS Desktop Command Environment..."
   cd "${ROOT_DIR}/desktop"
   npm install
   npm run build
+  rm -rf "${INSTALL_DIR}/ui-dist"
+  cp -R dist "${INSTALL_DIR}/ui-dist"
   if [[ "${1:-}" == "--build-dmg" ]]; then
     echo "Packaging native macOS Electron .dmg & .app..."
     npm install --no-save electron@^33.2.0 electron-builder@^25.1.8
     CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --mac dmg zip --publish never
+    if command -v xattr >/dev/null 2>&1; then
+      xattr -cr release-builds/mac*/"HOME OS.app" 2>/dev/null || true
+    fi
     echo "macOS app packaged in: ${ROOT_DIR}/desktop/release-builds/"
   fi
 )

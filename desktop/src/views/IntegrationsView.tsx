@@ -15,9 +15,13 @@ export const IntegrationsView: React.FC<Props> = ({ onRefreshGlobal, onNotify })
   const [matterWs, setMatterWs] = useState('ws://127.0.0.1:5580/ws');
 
   const loadIntegrations = useCallback(async () => {
-    const res = await apiRequest<{ integrations: IntegrationConnection[] }>('/integrations');
-    setIntegrations(res.integrations);
-  }, []);
+    try {
+      const res = await apiRequest<{ integrations: IntegrationConnection[] }>('/integrations');
+      setIntegrations(res.integrations || []);
+    } catch (err) {
+      onNotify(err instanceof Error ? err.message : 'Failed to load integrations');
+    }
+  }, [onNotify]);
 
   useEffect(() => {
     void loadIntegrations();

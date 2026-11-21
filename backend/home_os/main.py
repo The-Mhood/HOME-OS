@@ -99,9 +99,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(agent_router, prefix="/api/v1", tags=["Agent Channels"])
     app.include_router(domain_router, prefix="/api/v1", tags=["Communications, Media, Automations & Security"])
 
-    # Serve compiled desktop web bundle if present
-    dist_dir = Path(__file__).resolve().parents[2] / "desktop" / "dist"
-    if dist_dir.exists() and (dist_dir / "index.html").exists():
+    # Serve compiled desktop web bundle if present (supports repo checkout, installed wheel, and Electron bundle)
+    candidate_dist_dirs = [
+        cfg.static_dir,
+        Path.home() / ".local" / "share" / "home-os" / "ui-dist",
+        Path(__file__).resolve().parents[2] / "desktop" / "dist",
+    ]
+    dist_dir = next(
+        (d for d in candidate_dist_dirs if d is not None and d.exists() and (d / "index.html").exists()),
+        None,
+    )
+    if dist_dir is not None:
         assets_dir = dist_dir / "assets"
         if assets_dir.exists():
             app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")

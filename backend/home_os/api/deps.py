@@ -38,9 +38,10 @@ def _extract_bearer_token(authorization: str | None) -> str | None:
 def get_current_user_and_session(
     request: Request,
     authorization: str | None = Header(default=None),
+    x_homeos_token: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ) -> tuple[User, UserSession]:
-    raw_token = _extract_bearer_token(authorization)
+    raw_token = _extract_bearer_token(authorization) or (x_homeos_token.strip() if x_homeos_token else None)
     resolved = resolve_session_user(db, raw_token or "")
     if resolved is None:
         append_audit_log(
