@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+venv/
+ENV/
+*.egg-info/
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Node / Desktop
+node_modules/
+desktop/dist/
+desktop/dist-electron/
+desktop/release-builds/
+*.tsbuildinfo
+
+# Runtime Data & Secrets (NEVER commit secrets or local databases)
+data/
+*.db
+*.db-shm
+*.db-wal
+*.pem
+*.key
+*.crt
+*.enc
+.env
+.env.local
+
+# Mobile / Native Agent build outputs
+companions/android/.gradle/
+companions/android/build/
+companions/android/app/build/
+companions/android/local.properties
+companions/ios/.build/
+companions/ios/DerivedData/
+agents/windows/**/bin/
+agents/windows/**/obj/
+agents/macos/.build/
+
+# OS
+.DS_Store
+Thumbs.db
