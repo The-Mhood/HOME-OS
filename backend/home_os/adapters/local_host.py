@@ -149,6 +149,13 @@ LOCAL_HOST_CAPABILITIES: list[dict[str, Any]] = [
         },
     },
     {
+        "capability_key": "apps.list",
+        "category": "applications",
+        "display_name": "List Installed Applications",
+        "supported": True,
+        "requires_permission": "apps:launch",
+    },
+    {
         "capability_key": "apps.launch",
         "category": "applications",
         "display_name": "Open Application or URL",
@@ -159,7 +166,26 @@ LOCAL_HOST_CAPABILITIES: list[dict[str, Any]] = [
                 "app_id": {"type": "string"},
                 "bundle_id": {"type": "string"},
                 "url": {"type": "string"},
+                "target": {"type": "string"},
             },
+        },
+    },
+    {
+        "capability_key": "sms.list",
+        "category": "communications",
+        "display_name": "Read SMS / iMessage History (Continuity)",
+        "supported": True,
+        "requires_permission": "notifications:read",
+    },
+    {
+        "capability_key": "sms.send",
+        "category": "communications",
+        "display_name": "Send & Reply to SMS / iMessage (Continuity)",
+        "supported": True,
+        "requires_permission": "notifications:reply",
+        "parameters_schema": {
+            "required": ["to", "message"],
+            "properties": {"to": {"type": "string"}, "message": {"type": "string"}},
         },
     },
     {
@@ -189,10 +215,8 @@ LOCAL_HOST_CAPABILITIES: list[dict[str, Any]] = [
         "display_name": "Wake / Sleep Display",
         "supported": True,
         "requires_permission": "power:control",
-        "requires_confirmation": True,
         "parameters_schema": {
-            "required": ["on"],
-            "properties": {"on": {"type": "boolean"}},
+            "properties": {"on": {"type": "boolean"}, "action": {"type": "string"}},
         },
     },
 ]
@@ -444,8 +468,63 @@ class LocalHostAdapter(BaseDeviceAdapter):
                 result={"length": len(text)},
             )
 
+        if key == "apps.list":
+            apps: list[dict[str, str]] = []
+            if is_mac:
+                for app_dir in (Path("/Applications"), Path("/System/Applications"), Path.home() / "Applications"):
+                    if app_dir.exists():
+                        for p in sorted(app_dir.glob("*.app")):
+                            apps.append({"package_name": p.stem, "name": p.stem})
+            else:
+                for desk_dir in (Path("/usr/share/applications"), Path.home() / ".local/share/applications"):
+                    if desk_dir.exists():
+                        for p in sorted(desk_dir.glob("*.desktop"))[:50]:
+                            apps.append({"package_name": p.stem, "name": p.stem.replace("-", " ").title()})
+            return CommandExecutionReceipt(
+                command_id=command_id,
+                acknowledged=True,
+                state_verified=True,
+                verification_method="host_applications_scan",
+                result={"apps": apps[:80], "count": len(apps)},
+            )
+
+        if key == "sms.list":
+            from home_os.adapters.ios_native import read_macos_continuity_messages
+
+            res = read_macos_continuity_messages(int(params.get("limit", 35)))
+            return CommandExecutionReceipt(
+                command_id=command_id,
+                acknowledged=True,
+                state_verified=bool(res.get("available", False)),
+                verification_method="macos_continuity_chatdb",
+                result=res,
+            )
+
+        if key == "sms.send":
+            from home_os.adapters.ios_native import IosBridgeError, send_macos_continuity_sms
+
+            try:
+                res = asyncio.run(send_macos_continuity_sms(str(params.get("to") or ""), str(params.get("message") or "")))
+                return CommandExecutionReceipt(
+                    command_id=command_id,
+                    acknowledged=True,
+                    state_verified=True,
+                    verification_method="macos_continuity_messages_app",
+                    result=res,
+                )
+            except IosBridgeError as exc:
+                return CommandExecutionReceipt(
+                    command_id=command_id,
+                    acknowledged=False,
+                    state_verified=False,
+                    error_code=exc.code,
+                    error_message=exc.message,
+                )
+
         if key == "apps.launch":
-            target = str(params.get("url") or params.get("bundle_id") or params.get("app_id") or "").strip()
+            target = str(
+                params.get("url") or params.get("package_name") or params.get("target") or params.get("bundle_id") or params.get("app_id") or ""
+            ).strip()
             if not target:
                 return CommandExecutionReceipt(
                     command_id=command_id,

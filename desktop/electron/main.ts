@@ -137,8 +137,8 @@ async function ensureLocalBackendRunning(port: string): Promise<boolean> {
     if (process.env.HOMEOS_EXTERNAL_BACKEND === '1') {
       return true;
     }
-    // If an older loopback-only or pre-1.3.0 instance is holding port 8420, replace it
-    if (initial.bindHost === '0.0.0.0' && initial.apiRevision === '1.3.0') {
+    // If an older loopback-only or pre-1.4.0 instance is holding port 8420, replace it
+    if (initial.bindHost === '0.0.0.0' && initial.apiRevision === '1.4.0') {
       return true;
     }
     stopStalePortListener(port);
@@ -165,6 +165,7 @@ async function ensureLocalBackendRunning(port: string): Promise<boolean> {
   const staticDir = resolveBundledUiDir();
   const augmentedPath = [
     path.join(home, '.local', 'bin'),
+    path.join(home, '.local', 'share', 'home-os', 'platform-tools'),
     '/opt/homebrew/bin',
     '/usr/local/bin',
     process.env.PATH || '/usr/bin:/bin:/usr/sbin:/sbin',

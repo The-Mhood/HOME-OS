@@ -76,6 +76,23 @@ if compgen -G "${ROOT_DIR}/releases/home_os-*.whl" > /dev/null; then
 else
   "${VENV_DIR}/bin/pip" install --upgrade "${ROOT_DIR}"
 fi
+# Optional native iOS Wi-Fi/USB Lockdown bridge (`diagnostics_relay`, `installation_proxy`, `afc`)
+"${VENV_DIR}/bin/pip" install -q pymobiledevice3 2>/dev/null || true
+
+# Ensure Android `adb` (`platform-tools`) is available for Android 11+ Wireless Debugging & background OS control
+if ! command -v adb >/dev/null 2>&1 && [[ ! -x "/opt/homebrew/bin/adb" ]] && [[ ! -x "${INSTALL_DIR}/platform-tools/adb" ]]; then
+  echo "Downloading official Android Platform-Tools (adb) for background Android Wi-Fi control..."
+  TMP_ADB_ZIP="$(mktemp -t homeos-adb.XXXXXX).zip"
+  if curl -fsSL "https://dl.google.com/android/repository/platform-tools-latest-darwin.zip" -o "${TMP_ADB_ZIP}" 2>/dev/null; then
+    rm -rf "${INSTALL_DIR}/platform-tools"
+    unzip -q "${TMP_ADB_ZIP}" -d "${INSTALL_DIR}" || true
+    if command -v xattr >/dev/null 2>&1 && [[ -d "${INSTALL_DIR}/platform-tools" ]]; then
+      xattr -cr "${INSTALL_DIR}/platform-tools" 2>/dev/null || true
+    fi
+  fi
+  rm -f "${TMP_ADB_ZIP}"
+fi
+
 ln -sf "${VENV_DIR}/bin/homeos" "${BIN_DIR}/homeos"
 
 # 3. Build Desktop Command Environment (Web SPA + native macOS .app / .dmg)

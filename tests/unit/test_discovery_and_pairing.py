@@ -463,3 +463,215 @@ def test_macos_sequoia_redacted_arp_and_local_host_and_companion_mailbox(tmp_dat
         assert queued_cmds[0]["capability_key"] == "device.ring"
 
 
+def test_zero_webpage_android_adb_and_ios_continuity_power_apps_sms_and_hardware(tmp_data_dir: Path, monkeypatch):
+    import sqlite3
+    from fastapi.testclient import TestClient
+    from home_os.adapters.android_adb import parse_android_sms_query
+    from home_os.adapters.ios_native import read_macos_continuity_messages
+    from home_os.config import Settings
+    from home_os.main import create_app
+
+    # 1. Verify multiline Android SMS ContentProvider parser
+    sms_sample = (
+        "Row: 0 _id=101, thread_id=5, address=+2348012345678, body=Hey! Are you home?\nLet me know, "
+        "date=1700000500000, type=1, read=0\n"
+        "Row: 1 _id=100, thread_id=5, address=+2348012345678, body=On my way, date=1700000100000, type=2, read=1\n"
+    )
+    parsed_sms = parse_android_sms_query(sms_sample)
+    assert len(parsed_sms) == 2
+    assert parsed_sms[0]["address"] == "+2348012345678"
+    assert "Let me know" in parsed_sms[0]["body"]
+    assert parsed_sms[0]["direction"] == "incoming"
+
+    # 2. Verify macOS Sonoma/Sequoia `chat.db` Continuity SMS + NSAttributedString binary extraction
+    fake_chat_db = tmp_data_dir / "chat.db"
+    conn = sqlite3.connect(str(fake_chat_db))
+    conn.executescript(
+        """
+        CREATE TABLE handle (ROWID INTEGER PRIMARY KEY, id TEXT);
+        CREATE TABLE chat (ROWID INTEGER PRIMARY KEY, chat_identifier TEXT);
+        CREATE TABLE message (
+            ROWID INTEGER PRIMARY KEY,
+            handle_id INTEGER,
+            text TEXT,
+            attributedBody BLOB,
+            is_from_me INTEGER,
+            is_read INTEGER,
+            service TEXT,
+            date INTEGER
+        );
+        CREATE TABLE chat_message_join (chat_id INTEGER, message_id INTEGER);
+        INSERT INTO handle VALUES (1, '+15551234567');
+        """
+    )
+    msg_str = b"Hello from iPhone Continuity!"
+    attributed_blob = b"\x04\x0bstreamtyped\x81\xe8\x03NSString\x01\x94\x84\x01+" + bytes([len(msg_str)]) + msg_str + b"\x86"
+    conn.execute(
+        "INSERT INTO message VALUES (1, 1, NULL, ?, 0, 0, 'SMS', 750000000000000000)",
+        (attributed_blob,),
+    )
+    conn.commit()
+    conn.close()
+
+    ios_msgs = read_macos_continuity_messages(limit=10, db_path=fake_chat_db)
+    assert ios_msgs["available"] is True
+    assert len(ios_msgs["messages"]) == 1
+    assert ios_msgs["messages"][0]["body"] == "Hello from iPhone Continuity!"
+    assert ios_msgs["messages"][0]["address"] == "+15551234567"
+
+    # 3. Full E2E Background Android ADB Adapter (Power ON/OFF, App Launch, SMS Sync/Reply, Brightness/Bluetooth)
+    state_file = tmp_data_dir / "adb_screen_state.txt"
+    state_file.write_text("Asleep")
+    sent_counter = tmp_data_dir / "adb_sent_count.txt"
+    sent_counter.write_text("1")
+
+    fake_adb = tmp_data_dir / "fake_adb.sh"
+    fake_adb.write_text(
+        f"""#!/usr/bin/env bash
+if [[ "$1" == "devices" ]]; then
+  echo -e "List of devices attached\\n192.168.1.88:5555\\tdevice model:Galaxy_S24"
+  exit 0
+fi
+if [[ "$1" == "connect" ]] || [[ "$1" == "pair" ]]; then
+  echo "connected to $2"
+  exit 0
+fi
+if [[ "$1" == "-s" && "$3" == "shell" ]]; then
+  CMD="$4"
+  if [[ "$CMD" == *"getprop"* ]]; then
+    printf "Samsung\\nGalaxy S24\\n15\\nand-sec-id-999\\n"
+    exit 0
+  fi
+  if [[ "$CMD" == *"input keyevent 224"* ]]; then
+    echo "Awake" > "{state_file}"
+  fi
+  if [[ "$CMD" == *"input keyevent 223"* ]]; then
+    echo "Asleep" > "{state_file}"
+  fi
+  if [[ "$CMD" == *"dumpsys battery"* ]]; then
+    WAKE=$(cat "{state_file}")
+    printf "  AC powered: false\\n  USB powered: true\\n  level: 84\\n  temperature: 310\\n---POWER---\\nmWakefulness=$WAKE\\n---FOCUS---\\ntopResumedActivity=ActivityRecord{{u0 com.whatsapp/.HomeActivity}}\\n---BRIGHT---\\n180\\n"
+    exit 0
+  fi
+  if [[ "$CMD" == *"pm list packages"* ]]; then
+    printf "package:com.whatsapp\\npackage:com.spotify.music\\n---SYS---\\npackage:com.android.settings\\n"
+    exit 0
+  fi
+  if [[ "$CMD" == *"monkey -p"* ]]; then
+    echo "Events injected: 1"
+    exit 0
+  fi
+  if [[ "$CMD" == *"service call isms"* ]]; then
+    echo "2" > "{sent_counter}"
+    exit 0
+  fi
+  if [[ "$CMD" == *"content://sms/sent"* ]]; then
+    CNT=$(cat "{sent_counter}")
+    echo "Row: 0 _id=$CNT, date=1700000999000"
+    exit 0
+  fi
+  if [[ "$CMD" == *"content://sms/"* ]]; then
+    echo "Row: 0 _id=55, thread_id=2, address=+2348099991111, body=Can you call me?, date=1700000800000, type=1, read=0"
+    exit 0
+  fi
+  if [[ "$CMD" == *"dumpsys notification"* ]]; then
+    printf "NotificationRecord(0x1: pkg=com.whatsapp user=UserHandle{{0}}\\n  android.title=Chinedu\\n  android.text=Meeting at 4pm\\n"
+    exit 0
+  fi
+  echo "OK"
+  exit 0
+fi
+exit 0
+"""
+    )
+    fake_adb.chmod(0o755)
+    monkeypatch.setenv("HOMEOS_ADB_PATH", str(fake_adb))
+
+    app = create_app(Settings(data_dir=tmp_data_dir))
+    with TestClient(app) as client:
+        setup_res = client.post(
+            "/api/v1/auth/setup",
+            json={"username": "owner", "display_name": "Owner", "password": "StrongPassword123!"},
+        )
+        headers = {"X-HomeOS-Token": setup_res.json()["access_token"]}
+
+        conn_res = client.post(
+            "/api/v1/devices/android/connect",
+            headers=headers,
+            json={"connect_address": "192.168.1.88:5555", "name": "My Galaxy S24"},
+        )
+        assert conn_res.status_code == 200
+        assert conn_res.json()["webpage_required"] is False
+        dev_id = conn_res.json()["device"]["id"]
+
+        # Turn Screen ON (Wake) — verified via dumpsys power!
+        wake_res = client.post(
+            f"/api/v1/devices/{dev_id}/commands",
+            headers=headers,
+            json={"capability_key": "power.set", "parameters": {"on": True}},
+        )
+        assert wake_res.status_code == 200
+        assert wake_res.json()["command"]["status"] == "verified"
+        assert wake_res.json()["command"]["result"]["screen_on"] is True
+
+        # Turn Screen OFF (Sleep) — verified via dumpsys power!
+        sleep_res = client.post(
+            f"/api/v1/devices/{dev_id}/commands",
+            headers=headers,
+            json={"capability_key": "power.set", "parameters": {"on": False}},
+        )
+        assert sleep_res.status_code == 200
+        assert sleep_res.json()["command"]["status"] == "verified"
+        assert sleep_res.json()["command"]["result"]["screen_on"] is False
+
+        # List Installed Apps & Launch WhatsApp by friendly name!
+        apps_res = client.post(
+            f"/api/v1/devices/{dev_id}/commands",
+            headers=headers,
+            json={"capability_key": "apps.list", "parameters": {}},
+        )
+        assert apps_res.json()["command"]["result"]["count"] == 3
+
+        launch_res = client.post(
+            f"/api/v1/devices/{dev_id}/commands",
+            headers=headers,
+            json={"capability_key": "apps.launch", "parameters": {"target": "WhatsApp"}},
+        )
+        assert launch_res.json()["command"]["status"] == "verified"
+        assert launch_res.json()["command"]["result"]["launched_package"] == "com.whatsapp"
+
+        # Hardware Brightness & Bluetooth Toggle
+        b_res = client.post(
+            f"/api/v1/devices/{dev_id}/commands",
+            headers=headers,
+            json={"capability_key": "brightness.set", "parameters": {"level": 80}},
+        )
+        assert b_res.json()["command"]["status"] == "verified"
+
+        bt_res = client.post(
+            f"/api/v1/devices/{dev_id}/commands",
+            headers=headers,
+            json={"capability_key": "hardware.toggle", "parameters": {"feature": "bluetooth", "enabled": True}},
+        )
+        assert bt_res.json()["command"]["status"] == "verified"
+
+        # Sync Real SMS & Notifications into Communications and Reply to SMS!
+        sync_res = client.post("/api/v1/communications/sync", headers=headers, json={"device_id": dev_id})
+        assert sync_res.status_code == 200
+        assert sync_res.json()["synced_messages"] == 1
+        assert sync_res.json()["synced_notifications"] == 1
+
+        comms = client.get("/api/v1/communications?source_type=sms", headers=headers).json()["items"]
+        assert len(comms) == 1
+        assert comms[0]["sender"] == "+2348099991111"
+
+        reply_res = client.post(
+            f"/api/v1/communications/{comms[0]['id']}/reply",
+            headers=headers,
+            json={"message": "Calling you in 5 mins!"},
+        )
+        assert reply_res.status_code == 200
+        assert reply_res.json()["command"]["status"] == "verified"
+
+
+

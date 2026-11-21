@@ -26,6 +26,7 @@ dependencies = [
     "defusedxml>=0.7.1",
     "python-multipart>=0.0.9",
     "qrcode>=7.4.2",
+    "adb-shell>=0.4.4",
 ]
 
 [project.optional-dependencies]

@@ -26,6 +26,9 @@ from home_os.services.event_bus import EventBus
 
 MDNS_SERVICE_TYPES = [
     "_homeos._tcp.local.",
+    "_adb-tls-connect._tcp.local.",
+    "_adb-tls-pairing._tcp.local.",
+    "_apple-mobdev2._tcp.local.",
     "_androidtvremote2._tcp.local.",
     "_googlecast._tcp.local.",
     "_home-assistant._tcp.local.",
@@ -476,9 +479,13 @@ def classify_discovered_endpoint(ep: DiscoveredEndpoint) -> dict[str, Any]:
         vendor = vendor or "Home Assistant"
     elif "_matter._tcp" in svc or "_matterc._udp" in svc:
         category, adapter_type = "smarthome", "matter"
-    elif 62078 in open_ports or "_companion-link._tcp" in svc:
+    elif "_adb-tls-connect._tcp" in svc or "_adb-tls-pairing._tcp" in svc or 5555 in open_ports:
         category = "smartphone"
-        adapter_type = "ios_companion"
+        adapter_type = "android_adb"
+        os_name = "Android"
+    elif 62078 in open_ports or "_apple-mobdev2._tcp" in svc or "_companion-link._tcp" in svc:
+        category = "smartphone"
+        adapter_type = "ios_native"
         vendor = vendor or "Apple"
         os_name = "iOS"
     elif "_hap._tcp" in svc or "_hue._tcp" in svc or "_esphomelib._tcp" in svc:

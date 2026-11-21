@@ -122,6 +122,43 @@ async def reply_to_communication(
     return {"command": serialize_command(cmd)}
 
 
+@router.post("/communications/sync")
+async def sync_communications_from_devices(
+    payload: dict | None = None,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    runtime: HomeOsRuntime = Depends(get_runtime),
+):
+    device_id = (payload or {}).get("device_id")
+    res = await runtime.communications.sync_device_messages(db=db, user_id=user.id, device_id=device_id)
+    return res
+
+
+@router.post("/communications/send-sms")
+async def send_direct_sms_from_device(
+    payload: dict,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    runtime: HomeOsRuntime = Depends(get_runtime),
+):
+    device_id = str(payload.get("device_id") or "").strip()
+    to_addr = str(payload.get("to") or "").strip()
+    message = str(payload.get("message") or "").strip()
+    if not device_id or not to_addr or not message:
+        raise HTTPException(status_code=400, detail="device_id, to, and message are required")
+    try:
+        cmd = await runtime.orchestrator.submit_command(
+            db=db,
+            user_id=user.id,
+            device_id=device_id,
+            capability_key="sms.send",
+            parameters={"to": to_addr, "message": message},
+        )
+    except CommandPipelineError as exc:
+        raise HTTPException(status_code=exc.status_code, detail={"code": exc.code, "message": exc.message})
+    return {"command": serialize_command(cmd)}
+
+
 # --- MEDIA & FILE MANAGEMENT ---
 
 

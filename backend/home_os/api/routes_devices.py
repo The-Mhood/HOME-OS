@@ -107,6 +107,15 @@ async def run_network_discovery(
 
     subnets = [str(s) for s in get_active_lan_subnets()]
     devices = await runtime.discovery.scan_all(db=db, actor_user_id=user.id)
+    native_eps = []
+    try:
+        native_eps.extend(await runtime.android_adb_adapter.discover())
+        native_eps.extend(await runtime.ios_native_adapter.discover())
+    except Exception:
+        pass
+    if native_eps:
+        extra = await runtime.discovery.ingest_discovered_endpoints(db, native_eps, actor_user_id=user.id)
+        devices.extend(extra)
     all_devices = db.execute(select(Device).order_by(Device.last_seen_at.desc())).scalars().all()
     return {
         "discovered_in_scan": len(devices),
@@ -123,6 +132,129 @@ def enroll_this_computer(
 ):
     dev = runtime.pairing.ensure_local_host_enrolled(db)
     return {"device": serialize_device(dev, include_details=True)}
+
+
+@router.get("/devices/native-bridges/status")
+async def get_native_bridges_status(
+    _user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    runtime: HomeOsRuntime = Depends(get_runtime),
+):
+    import sys
+    from home_os.adapters.android_adb import find_adb_binary
+
+    adb_bin = find_adb_binary()
+    adb_devices = await runtime.android_adb_adapter.list_connected_devices()
+    ios_devices = await runtime.ios_native_adapter.list_connected_ios_devices()
+
+    # Also surface any mDNS-discovered Android Wireless Debugging pairing/connect endpoints!
+    mdns_android = [
+        {"id": d.id, "name": d.name, "ip_address": d.ip_address, "port": d.port}
+        for d in db.execute(select(Device).where(Device.adapter_type == "android_adb", Device.lifecycle_state != "authenticated"))
+        .scalars()
+        .all()
+    ]
+    return {
+        "adb_binary_installed": bool(adb_bin),
+        "adb_binary_path": adb_bin,
+        "py_adb_tcp_ready": True,
+        "android_connected": adb_devices,
+        "android_mdns_candidates": mdns_android,
+        "ios_connected": ios_devices,
+        "macos_continuity_available": sys.platform == "darwin",
+    }
+
+
+@router.post("/devices/android/connect")
+async def connect_and_enroll_android_direct(
+    payload: dict,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    runtime: HomeOsRuntime = Depends(get_runtime),
+):
+    from home_os.adapters.android_adb import AndroidBridgeError
+
+    usb_serial = str(payload.get("usb_serial") or "").strip()
+    enable_wifi = bool(payload.get("enable_wifi", True))
+    pair_address = str(payload.get("pair_address") or "").strip() or None
+    pairing_code = str(payload.get("pairing_code") or "").strip() or None
+    connect_address = str(payload.get("connect_address") or "").strip() or None
+    custom_name = str(payload.get("name") or "").strip() or None
+
+    try:
+        if usb_serial:
+            if enable_wifi:
+                wifi_res = await runtime.android_adb_adapter.enable_wifi_from_usb(usb_serial)
+                connect_address = wifi_res["wifi_target"]
+            else:
+                connect_address = usb_serial
+
+        adb_info = await runtime.android_adb_adapter.pair_and_connect_wireless(
+            pair_address=pair_address,
+            pairing_code=pairing_code,
+            connect_address=connect_address,
+        )
+        dev = runtime.pairing.enroll_android_adb_device(
+            db=db,
+            adb_info=adb_info,
+            custom_name=custom_name,
+            actor_user_id=user.id,
+        )
+    except AndroidBridgeError as exc:
+        raise HTTPException(status_code=400, detail={"code": exc.code, "message": exc.message})
+
+    return {
+        "device": serialize_device(dev, include_details=True),
+        "adb_target": adb_info["adb_target"],
+        "webpage_required": False,
+    }
+
+
+@router.post("/devices/ios/connect")
+async def connect_and_enroll_ios_native(
+    payload: dict,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    runtime: HomeOsRuntime = Depends(get_runtime),
+):
+    from home_os.adapters.ios_native import IosBridgeError
+
+    udid = str(payload.get("udid") or "").strip() or None
+    custom_name = str(payload.get("name") or "").strip() or None
+    try:
+        ios_info = await runtime.ios_native_adapter.pair_ios_device(udid=udid, custom_name=custom_name)
+        dev = runtime.pairing.enroll_ios_native_device(
+            db=db,
+            ios_info=ios_info,
+            actor_user_id=user.id,
+        )
+    except IosBridgeError as exc:
+        raise HTTPException(status_code=400, detail={"code": exc.code, "message": exc.message})
+
+    return {
+        "device": serialize_device(dev, include_details=True),
+        "webpage_required": False,
+    }
+
+
+@router.post("/system/open-privacy-settings")
+async def open_macos_privacy_settings(
+    payload: dict | None = None,
+    _user: User = Depends(get_current_user),
+):
+    import asyncio
+    import sys
+
+    pane = str((payload or {}).get("pane") or "full_disk_access")
+    if sys.platform != "darwin":
+        return {"opened": False}
+    url_map = {
+        "full_disk_access": "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles",
+        "automation": "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation",
+    }
+    proc = await asyncio.create_subprocess_exec("/usr/bin/open", url_map.get(pane, url_map["full_disk_access"]))
+    await proc.communicate()
+    return {"opened": True, "pane": pane}
 
 
 @router.post("/devices/{device_id}/enroll-network")

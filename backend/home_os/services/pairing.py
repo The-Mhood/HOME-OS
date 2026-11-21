@@ -649,6 +649,8 @@ class PairingService:
             "media:control",
             "notifications:read",
             "notifications:reply",
+            "sms:read",
+            "sms:send",
             "apps:launch",
             "apps:manage",
             "files:browse",
@@ -737,6 +739,244 @@ class PairingService:
             device_id=device.id,
             outcome="success",
             details={"ip_address": device.ip_address, "mac_address": device.mac_address},
+        )
+        db.commit()
+        db.refresh(device)
+        return device
+
+    def _ensure_credentials_and_scopes(self, db: Session, device_id: str, scopes: tuple[str, ...], actor_user_id: str) -> None:
+        cred = db.execute(select(DeviceCredential).where(DeviceCredential.device_id == device_id)).scalar_one_or_none()
+        if cred is None or cred.revoked_at is not None:
+            tok = generate_secure_token(32)
+            hm = generate_secure_token(32)
+            if cred is None:
+                db.add(
+                    DeviceCredential(
+                        device_id=device_id,
+                        key_version=1,
+                        token_hash=hash_token(tok),
+                        encrypted_hmac_secret=self.vault.encrypt(hm, aad=f"device:{device_id}"),
+                    )
+                )
+            else:
+                cred.key_version += 1
+                cred.token_hash = hash_token(tok)
+                cred.encrypted_hmac_secret = self.vault.encrypt(hm, aad=f"device:{device_id}")
+                cred.revoked_at = None
+
+        existing_scopes = {
+            p.permission_scope: p
+            for p in db.execute(select(DevicePermission).where(DevicePermission.device_id == device_id)).scalars().all()
+        }
+        for scope in scopes:
+            if scope in existing_scopes:
+                existing_scopes[scope].status = "granted"
+                existing_scopes[scope].revoked_at = None
+            else:
+                db.add(
+                    DevicePermission(
+                        device_id=device_id,
+                        permission_scope=scope,
+                        status="granted",
+                        granted_by_user_id=actor_user_id,
+                    )
+                )
+
+    def enroll_android_adb_device(
+        self,
+        *,
+        db: Session,
+        adb_info: dict[str, Any],
+        custom_name: str | None,
+        actor_user_id: str,
+    ) -> Device:
+        from home_os.adapters.android_adb import ANDROID_ADB_CAPABILITIES
+
+        fp = str(adb_info["hardware_fingerprint"])
+        now = datetime.now(timezone.utc)
+        device = db.execute(select(Device).where(Device.hardware_fingerprint == fp)).scalar_one_or_none()
+        # Also match any discovered unpaired phone at the same IP so we don't leave duplicates!
+        if device is None and adb_info.get("ip_address"):
+            device = db.execute(
+                select(Device).where(
+                    Device.ip_address == adb_info["ip_address"],
+                    Device.lifecycle_state.in_(["discovered", "identified"]),
+                )
+            ).scalar_one_or_none()
+
+        display_name = (custom_name or "").strip() or f"{adb_info.get('manufacturer', 'Android')} {adb_info.get('model', 'Phone')}".strip()
+        meta = {"adb_target": adb_info["adb_target"], "webpage_required": False}
+
+        if device is None:
+            device = Device(
+                hardware_fingerprint=fp,
+                name=display_name,
+                category="smartphone",
+                manufacturer=adb_info.get("manufacturer", "Android"),
+                model=adb_info.get("model", "Android Phone"),
+                os_name="Android",
+                os_version=adb_info.get("os_version"),
+                ip_address=adb_info.get("ip_address"),
+                port=adb_info.get("port"),
+                lifecycle_state="authenticated",
+                discovery_source="adb_wireless",
+                adapter_type="android_adb",
+                connection_status="online",
+                health_score=100,
+                integration_health="healthy",
+                metadata_json=meta,
+                enrolled_at=now,
+                first_seen_at=now,
+                last_seen_at=now,
+            )
+            db.add(device)
+            db.flush()
+        else:
+            device.hardware_fingerprint = fp
+            device.name = display_name
+            device.category = "smartphone"
+            device.manufacturer = adb_info.get("manufacturer") or device.manufacturer
+            device.model = adb_info.get("model") or device.model
+            device.os_name = "Android"
+            device.os_version = adb_info.get("os_version") or device.os_version
+            device.ip_address = adb_info.get("ip_address") or device.ip_address
+            device.port = adb_info.get("port") or device.port
+            device.adapter_type = "android_adb"
+            device.lifecycle_state = "authenticated"
+            device.connection_status = "online"
+            device.integration_health = "healthy"
+            device.health_score = 100
+            device.metadata_json = {**(device.metadata_json or {}), **meta}
+            device.enrolled_at = device.enrolled_at or now
+            device.last_seen_at = now
+
+        self._ensure_credentials_and_scopes(
+            db,
+            device.id,
+            (
+                "telemetry:read",
+                "notifications:read",
+                "notifications:reply",
+                "sms:read",
+                "sms:send",
+                "calls:read",
+                "flashlight:control",
+                "media:control",
+                "volume:control",
+                "power:control",
+                "apps:launch",
+                "apps:manage",
+                "files:browse",
+                "files:write",
+                "screen:view",
+                "input:remote",
+            ),
+            actor_user_id,
+        )
+        self.sync_device_capabilities(db, device.id, ANDROID_ADB_CAPABILITIES)
+        append_audit_log(
+            db,
+            severity="info",
+            category="pairing",
+            event_type="device.android_adb_enrolled",
+            actor_type="user",
+            actor_id=actor_user_id,
+            device_id=device.id,
+            outcome="success",
+            details={"adb_target": adb_info["adb_target"]},
+        )
+        db.commit()
+        db.refresh(device)
+        return device
+
+    def enroll_ios_native_device(
+        self,
+        *,
+        db: Session,
+        ios_info: dict[str, Any],
+        actor_user_id: str,
+    ) -> Device:
+        from home_os.adapters.ios_native import IOS_NATIVE_CAPABILITIES
+
+        udid = str(ios_info.get("udid") or "continuity-iphone")
+        fp = f"ios-udid-{udid}"
+        now = datetime.now(timezone.utc)
+        device = db.execute(select(Device).where(Device.hardware_fingerprint == fp)).scalar_one_or_none()
+        name = str(ios_info.get("device_name") or "iPhone")
+        meta = {"udid": udid, "webpage_required": False, "transport": ios_info.get("transport", "wifi_lockdown")}
+
+        if device is None:
+            device = Device(
+                hardware_fingerprint=fp,
+                name=name,
+                category="smartphone",
+                manufacturer="Apple",
+                model=ios_info.get("model", "iPhone"),
+                os_name="iOS",
+                os_version=ios_info.get("os_version"),
+                ip_address=ios_info.get("ip_address"),
+                mac_address=ios_info.get("wifi_mac"),
+                battery_level=ios_info.get("battery_level"),
+                is_charging=ios_info.get("is_charging"),
+                lifecycle_state="authenticated",
+                discovery_source="apple_usbmuxd",
+                adapter_type="ios_native",
+                connection_status="online",
+                health_score=100,
+                integration_health="healthy",
+                metadata_json=meta,
+                enrolled_at=now,
+                first_seen_at=now,
+                last_seen_at=now,
+            )
+            db.add(device)
+            db.flush()
+        else:
+            device.name = name
+            device.adapter_type = "ios_native"
+            device.model = ios_info.get("model") or device.model
+            device.os_version = ios_info.get("os_version") or device.os_version
+            device.ip_address = ios_info.get("ip_address") or device.ip_address
+            if ios_info.get("battery_level") is not None:
+                device.battery_level = ios_info["battery_level"]
+            if ios_info.get("is_charging") is not None:
+                device.is_charging = ios_info["is_charging"]
+            device.lifecycle_state = "authenticated"
+            device.connection_status = "online"
+            device.integration_health = "healthy"
+            device.health_score = 100
+            device.metadata_json = {**(device.metadata_json or {}), **meta}
+            device.enrolled_at = device.enrolled_at or now
+            device.last_seen_at = now
+
+        self._ensure_credentials_and_scopes(
+            db,
+            device.id,
+            (
+                "telemetry:read",
+                "notifications:read",
+                "notifications:reply",
+                "sms:read",
+                "sms:send",
+                "calls:read",
+                "power:control",
+                "apps:launch",
+                "apps:manage",
+                "files:browse",
+            ),
+            actor_user_id,
+        )
+        self.sync_device_capabilities(db, device.id, IOS_NATIVE_CAPABILITIES)
+        append_audit_log(
+            db,
+            severity="info",
+            category="pairing",
+            event_type="device.ios_native_enrolled",
+            actor_type="user",
+            actor_id=actor_user_id,
+            device_id=device.id,
+            outcome="success",
+            details={"udid": udid},
         )
         db.commit()
         db.refresh(device)

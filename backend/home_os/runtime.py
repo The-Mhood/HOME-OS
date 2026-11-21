@@ -1,9 +1,11 @@
 from pathlib import Path
 from home_os.adapters.agent_ws import CompanionAgentHub, PlatformAgentAdapter
+from home_os.adapters.android_adb import AndroidAdbAdapter
 from home_os.adapters.base import AdapterRegistry
 from home_os.adapters.generic_network import GenericNetworkDeviceAdapter
 from home_os.adapters.google_tv import AndroidTvRemoteAdapter
 from home_os.adapters.home_assistant import HomeAssistantAdapter
+from home_os.adapters.ios_native import IosNativeAdapter
 from home_os.adapters.local_host import LocalHostAdapter
 from home_os.adapters.matter import MatterAdapter
 from home_os.config import Settings
@@ -49,10 +51,14 @@ class HomeOsRuntime:
         self.google_tv_adapter = AndroidTvRemoteAdapter(client_cert_info=self.tls_info)
         self.home_assistant_adapter = HomeAssistantAdapter()
         self.matter_adapter = MatterAdapter()
+        self.android_adb_adapter = AndroidAdbAdapter(session_factory=self.SessionLocal, data_dir=settings.data_dir)
+        self.ios_native_adapter = IosNativeAdapter(session_factory=self.SessionLocal)
 
         self.adapter_registry.register(self.google_tv_adapter)
         self.adapter_registry.register(self.home_assistant_adapter)
         self.adapter_registry.register(self.matter_adapter)
+        self.adapter_registry.register(self.android_adb_adapter)
+        self.adapter_registry.register(self.ios_native_adapter)
 
         # Core Services
         self.discovery = DiscoveryService(event_bus=self.event_bus)
