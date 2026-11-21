@@ -139,13 +139,13 @@ echo "[2/4] Building HOME OS Desktop Command Environment..."
         xattr -cr "${BUILT_APP}" 2>/dev/null || true
       fi
       if command -v codesign >/dev/null 2>&1; then
-        codesign --force --deep --sign - "${BUILT_APP}" 2>/dev/null || true
+        codesign --force --deep --entitlements "${ROOT_DIR}/desktop/entitlements.mac.plist" --sign - "${BUILT_APP}" 2>/dev/null || true
       fi
       if [[ "$(uname -s)" == "Darwin" ]] && [[ -w "/Applications" ]]; then
         rm -rf "/Applications/HOME OS.app"
         /usr/bin/ditto "${BUILT_APP}" "/Applications/HOME OS.app"
         xattr -cr "/Applications/HOME OS.app" 2>/dev/null || true
-        codesign --force --deep --sign - "/Applications/HOME OS.app" 2>/dev/null || true
+        codesign --force --deep --entitlements "${ROOT_DIR}/desktop/entitlements.mac.plist" --sign - "/Applications/HOME OS.app" 2>/dev/null || true
         echo "Installed updated bundle to: /Applications/HOME OS.app"
       else
         echo "macOS app packaged in: ${BUILT_APP}"

@@ -103,12 +103,40 @@ async def run_network_discovery(
     db: Session = Depends(get_db),
     runtime: HomeOsRuntime = Depends(get_runtime),
 ):
+    from home_os.services.discovery import get_active_lan_subnets
+
+    subnets = [str(s) for s in get_active_lan_subnets()]
     devices = await runtime.discovery.scan_all(db=db, actor_user_id=user.id)
     all_devices = db.execute(select(Device).order_by(Device.last_seen_at.desc())).scalars().all()
     return {
         "discovered_in_scan": len(devices),
+        "subnets_scanned": subnets,
         "devices": [serialize_device(d, include_details=True) for d in all_devices],
     }
+
+
+@router.post("/devices/enroll-local-host")
+def enroll_this_computer(
+    _user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    runtime: HomeOsRuntime = Depends(get_runtime),
+):
+    dev = runtime.pairing.ensure_local_host_enrolled(db)
+    return {"device": serialize_device(dev, include_details=True)}
+
+
+@router.post("/devices/{device_id}/enroll-network")
+def enroll_discovered_network_device(
+    device_id: str,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    runtime: HomeOsRuntime = Depends(get_runtime),
+):
+    try:
+        dev = runtime.pairing.enroll_network_device(db=db, device_id=device_id, actor_user_id=user.id)
+    except PairingError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message)
+    return {"device": serialize_device(dev, include_details=True)}
 
 
 @router.post("/devices/manual")

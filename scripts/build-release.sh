@@ -24,7 +24,7 @@ echo "[3/4] Building HOME OS Desktop Production Bundle..."
 if [[ -d "${ROOT_DIR}/desktop/node_modules" ]]; then
   (cd "${ROOT_DIR}/desktop" && npm run build)
   tar -czf "${RELEASE_DIR}/home-os-desktop-bundle-1.0.0.tar.gz" \
-    -C "${ROOT_DIR}/desktop" dist dist-electron package.json electron-builder.yml
+    -C "${ROOT_DIR}/desktop" dist dist-electron package.json electron-builder.yml entitlements.mac.plist
 fi
 
 echo "[4/4] Generating cryptographic SHA-256 release manifest..."

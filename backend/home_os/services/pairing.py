@@ -569,3 +569,175 @@ class PairingService:
             {"devices_isolated": isolated_count, "automations_paused": paused_rules},
         )
         return {"devices_isolated": isolated_count, "automations_paused": paused_rules}
+
+    def ensure_local_host_enrolled(self, db: Session) -> Device:
+        import platform
+        import socket
+        import sys
+        from home_os.adapters.local_host import LOCAL_HOST_CAPABILITIES, get_local_host_telemetry
+        from home_os.services.discovery import get_primary_lan_ipv4
+
+        fp = "local-host-" + socket.gethostname().lower()[:40]
+        existing = db.execute(select(Device).where(Device.hardware_fingerprint == fp)).scalar_one_or_none()
+        is_mac = sys.platform == "darwin"
+        telem = get_local_host_telemetry()
+        now = datetime.now(timezone.utc)
+
+        if existing is None:
+            existing = Device(
+                hardware_fingerprint=fp,
+                name=f"{socket.gethostname()} (This {'Mac' if is_mac else 'Computer'})",
+                category="laptop" if is_mac else "desktop",
+                manufacturer="Apple" if is_mac else platform.system(),
+                model=platform.machine(),
+                os_name="macOS" if is_mac else platform.system(),
+                os_version=platform.mac_ver()[0] if is_mac else platform.release(),
+                ip_address=get_primary_lan_ipv4(),
+                hostname=socket.gethostname(),
+                lifecycle_state="authenticated",
+                discovery_source="local_host",
+                adapter_type="local_host",
+                connection_status="online",
+                health_score=100,
+                battery_level=telem.get("battery_level"),
+                is_charging=telem.get("is_charging"),
+                integration_health="healthy",
+                health_details_json=telem,
+                enrolled_at=now,
+                first_seen_at=now,
+                last_seen_at=now,
+            )
+            db.add(existing)
+            db.flush()
+        else:
+            existing.ip_address = get_primary_lan_ipv4()
+            existing.battery_level = telem.get("battery_level")
+            existing.is_charging = telem.get("is_charging")
+            existing.health_details_json = telem
+            if existing.lifecycle_state != "isolated":
+                existing.lifecycle_state = "authenticated"
+                existing.connection_status = "online"
+                existing.integration_health = "healthy"
+            existing.last_seen_at = now
+
+        cred = db.execute(select(DeviceCredential).where(DeviceCredential.device_id == existing.id)).scalar_one_or_none()
+        if cred is None:
+            tok = generate_secure_token(32)
+            hm = generate_secure_token(32)
+            db.add(
+                DeviceCredential(
+                    device_id=existing.id,
+                    key_version=1,
+                    token_hash=hash_token(tok),
+                    encrypted_hmac_secret=self.vault.encrypt(hm, aad=f"device:{existing.id}"),
+                )
+            )
+
+        self.sync_device_capabilities(
+            db,
+            existing.id,
+            LOCAL_HOST_CAPABILITIES,
+        )
+
+        existing_scopes = {
+            p.permission_scope
+            for p in db.execute(select(DevicePermission).where(DevicePermission.device_id == existing.id)).scalars().all()
+        }
+        for scope in (
+            "telemetry:read",
+            "volume:control",
+            "media:control",
+            "notifications:read",
+            "notifications:reply",
+            "apps:launch",
+            "apps:manage",
+            "files:browse",
+            "files:write",
+            "power:control",
+        ):
+            if scope not in existing_scopes:
+                db.add(
+                    DevicePermission(
+                        device_id=existing.id,
+                        permission_scope=scope,
+                        status="granted",
+                    )
+                )
+
+        db.commit()
+        db.refresh(existing)
+        return existing
+
+    def enroll_network_device(self, *, db: Session, device_id: str, actor_user_id: str) -> Device:
+        from home_os.adapters.generic_network import ENROLLED_NETWORK_CAPABILITIES
+
+        device = db.get(Device, device_id)
+        if device is None:
+            raise PairingError("Device not found", status_code=404)
+
+        now = datetime.now(timezone.utc)
+        device.adapter_type = "generic_network"
+        device.lifecycle_state = "authenticated"
+        device.connection_status = "online"
+        device.integration_health = "healthy"
+        device.health_score = 95
+        device.enrolled_at = device.enrolled_at or now
+        device.last_seen_at = now
+
+        cred = db.execute(select(DeviceCredential).where(DeviceCredential.device_id == device.id)).scalar_one_or_none()
+        if cred is None or cred.revoked_at is not None:
+            tok = generate_secure_token(32)
+            hm = generate_secure_token(32)
+            if cred is None:
+                db.add(
+                    DeviceCredential(
+                        device_id=device.id,
+                        key_version=1,
+                        token_hash=hash_token(tok),
+                        encrypted_hmac_secret=self.vault.encrypt(hm, aad=f"device:{device.id}"),
+                    )
+                )
+            else:
+                cred.key_version += 1
+                cred.token_hash = hash_token(tok)
+                cred.encrypted_hmac_secret = self.vault.encrypt(hm, aad=f"device:{device.id}")
+                cred.revoked_at = None
+
+        self.sync_device_capabilities(
+            db,
+            device.id,
+            ENROLLED_NETWORK_CAPABILITIES,
+        )
+
+        existing_scopes = {
+            p.permission_scope: p
+            for p in db.execute(select(DevicePermission).where(DevicePermission.device_id == device.id)).scalars().all()
+        }
+        for scope in ("telemetry:read", "power:control"):
+            if scope in existing_scopes:
+                existing_scopes[scope].status = "granted"
+                existing_scopes[scope].revoked_at = None
+            else:
+                db.add(
+                    DevicePermission(
+                        device_id=device.id,
+                        permission_scope=scope,
+                        status="granted",
+                        granted_by_user_id=actor_user_id,
+                    )
+                )
+
+        append_audit_log(
+            db,
+            severity="info",
+            category="pairing",
+            event_type="device.network_tools_enrolled",
+            actor_type="user",
+            actor_id=actor_user_id,
+            device_id=device.id,
+            outcome="success",
+            details={"ip_address": device.ip_address, "mac_address": device.mac_address},
+        )
+        db.commit()
+        db.refresh(device)
+        return device

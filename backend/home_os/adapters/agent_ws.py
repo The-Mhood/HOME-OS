@@ -38,6 +38,30 @@ class CompanionAgentHub:
         self._sessions: dict[str, ConnectedAgentSession] = {}
         self._pending_commands: dict[str, asyncio.Future[CommandExecutionReceipt]] = {}
         self._event_callbacks: dict[str, list[EventCallback]] = {}
+        self._mailbox_enabled: set[str] = set()
+        self._command_queues: dict[str, list[dict[str, Any]]] = {}
+
+    def enable_mailbox(self, device_id: str) -> None:
+        self._mailbox_enabled.add(device_id)
+
+    def has_mailbox(self, device_id: str) -> bool:
+        return device_id in self._mailbox_enabled
+
+    def pop_queued_commands(self, device_id: str) -> list[dict[str, Any]]:
+        items = self._command_queues.pop(device_id, [])
+        return items
+
+    async def flush_mailbox_to_ws(self, device_id: str) -> None:
+        session = self._sessions.get(device_id)
+        if session is None:
+            return
+        queued = self.pop_queued_commands(device_id)
+        for cmd in queued:
+            try:
+                await session.websocket.send_json(cmd)
+            except Exception:
+                self._command_queues.setdefault(device_id, []).append(cmd)
+                break
 
     def register_session(self, device_id: str, adapter_type: str, websocket: WebSocket) -> ConnectedAgentSession:
         session = ConnectedAgentSession(device_id=device_id, adapter_type=adapter_type, websocket=websocket)
@@ -71,6 +95,30 @@ class CompanionAgentHub:
     async def dispatch_command(self, device_id: str, command: AdapterCommand) -> CommandExecutionReceipt:
         session = self._sessions.get(device_id)
         if session is None:
+            if device_id in self._mailbox_enabled:
+                queue = self._command_queues.setdefault(device_id, [])
+                if len(queue) >= 30:
+                    queue.pop(0)
+                queue.append(
+                    {
+                        "type": "command.execute",
+                        "command_id": command.command_id,
+                        "capability_key": command.capability_key,
+                        "parameters": command.parameters,
+                        "timeout_ms": command.timeout_ms,
+                    }
+                )
+                return CommandExecutionReceipt(
+                    command_id=command.command_id,
+                    acknowledged=True,
+                    state_verified=False,
+                    verification_method="queued_for_mobile_wakeup",
+                    result={
+                        "queued": True,
+                        "pending_count": len(queue),
+                        "note": "Phone screen is sleeping/backgrounded — command queued and will execute automatically when phone wakes.",
+                    },
+                )
             return CommandExecutionReceipt(
                 command_id=command.command_id,
                 acknowledged=False,
@@ -149,6 +197,14 @@ class PlatformAgentAdapter(BaseDeviceAdapter):
     async def get_status(self, device_id: str) -> DeviceStatusSnapshot:
         session = self.agent_hub.get_session(device_id)
         if session is None:
+            if self.agent_hub.has_mailbox(device_id):
+                return DeviceStatusSnapshot(
+                    device_id=device_id,
+                    online=True,
+                    health_score=85,
+                    integration_health="standby_mailbox",
+                    attributes={"mode": "standby_mailbox"},
+                )
             return DeviceStatusSnapshot(
                 device_id=device_id,
                 online=False,

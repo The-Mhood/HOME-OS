@@ -210,13 +210,41 @@ export const DevicesView: React.FC<Props> = ({
   const triggerScan = async () => {
     setScanning(true);
     try {
-      await apiRequest('/discovery/scan', { method: 'POST' });
-      onNotify('Network discovery scan complete.');
+      const res = await apiRequest<{ discovered_in_scan: number; subnets_scanned?: string[] }>(
+        '/discovery/scan',
+        { method: 'POST' }
+      );
+      const subTxt = res.subnets_scanned?.length ? ` on ${res.subnets_scanned.join(', ')}` : '';
+      onNotify(`Scan complete: found ${res.discovered_in_scan} Wi-Fi host(s)${subTxt}.`);
       await onRefresh();
+    } catch (err) {
+      onNotify(err instanceof Error ? err.message : 'Network scan failed');
     } finally {
       setScanning(false);
     }
   };
+
+  const enrollLocalHost = async () => {
+    try {
+      await apiRequest('/devices/enroll-local-host', { method: 'POST' });
+      onNotify('Added this computer with native hardware volume, media, clipboard & file controls.');
+      await onRefresh();
+    } catch (err) {
+      onNotify(err instanceof Error ? err.message : 'Failed to enroll local host');
+    }
+  };
+
+  const quickEnrollNetwork = async (deviceId: string) => {
+    try {
+      await apiRequest(`/devices/${deviceId}/enroll-network`, { method: 'POST' });
+      onNotify('Enabled Wi-Fi Ping, Port Inspection & Wake-on-LAN for this device.');
+      await onRefresh();
+    } catch (err) {
+      onNotify(err instanceof Error ? err.message : 'Failed to enable network tools');
+    }
+  };
+
+  const hasLocalHost = registered.some((d) => d.adapter_type === 'local_host');
 
   const toggleScope = (scope: string) => {
     setSelectedScopes((prev) =>
@@ -233,10 +261,15 @@ export const DevicesView: React.FC<Props> = ({
             Discovered LAN hosts never receive private access automatically. Pair and grant explicit permissions to enable control.
           </p>
         </div>
-        <div style={{ display: 'flex', gap: '10px' }}>
+        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+          {!hasLocalHost && (
+            <button className="btn" onClick={enrollLocalHost}>
+              + Control This Mac
+            </button>
+          )}
           <button className="btn" onClick={triggerScan} disabled={scanning}>
             <Radar size={15} />
-            {scanning ? 'Scanning...' : 'Scan Network'}
+            {scanning ? 'Scanning Wi-Fi...' : 'Scan Network'}
           </button>
           <button
             className="btn btn-primary"
@@ -286,8 +319,18 @@ export const DevicesView: React.FC<Props> = ({
                   <td>{d.room_name || '—'}</td>
                   <td className="mono">{d.ip_address || 'local-ws'}</td>
                   <td>
-                    <span className={`badge ${d.connection_status === 'online' ? 'badge-online' : d.connection_status === 'isolated' ? 'badge-isolated' : 'badge-offline'}`}>
-                      {d.connection_status}
+                    <span
+                      className={`badge ${
+                        d.connection_status === 'online'
+                          ? 'badge-online'
+                          : d.connection_status === 'standby'
+                          ? 'badge-info'
+                          : d.connection_status === 'isolated'
+                          ? 'badge-isolated'
+                          : 'badge-offline'
+                      }`}
+                    >
+                      {d.connection_status === 'standby' ? 'standby (queued ready)' : d.connection_status}
                     </span>
                   </td>
                   <td className="tabular">{d.health_score !== null ? `${d.health_score}%` : d.integration_health}</td>
@@ -339,12 +382,15 @@ export const DevicesView: React.FC<Props> = ({
                   <td>
                     <span className="badge badge-unpaired">Discovery Only — Zero Private Access</span>
                   </td>
-                  <td style={{ display: 'flex', gap: '8px' }}>
+                  <td style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                     <button className="btn btn-sm" onClick={() => onSelectDevice(d.id)}>
                       Inspect
                     </button>
+                    <button className="btn btn-sm" onClick={() => quickEnrollNetwork(d.id)}>
+                      Enable Ping/WoL
+                    </button>
                     <button className="btn btn-sm btn-primary" onClick={() => startPairing(d)}>
-                      Enroll
+                      Pair
                     </button>
                   </td>
                 </tr>

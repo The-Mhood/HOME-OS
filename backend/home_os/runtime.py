@@ -4,6 +4,7 @@ from home_os.adapters.base import AdapterRegistry
 from home_os.adapters.generic_network import GenericNetworkDeviceAdapter
 from home_os.adapters.google_tv import AndroidTvRemoteAdapter
 from home_os.adapters.home_assistant import HomeAssistantAdapter
+from home_os.adapters.local_host import LocalHostAdapter
 from home_os.adapters.matter import MatterAdapter
 from home_os.config import Settings
 from home_os.db.models import Base
@@ -37,7 +38,8 @@ class HomeOsRuntime:
         # Adapter Registry
         self.agent_hub = CompanionAgentHub()
         self.adapter_registry = AdapterRegistry()
-        self.adapter_registry.register(GenericNetworkDeviceAdapter())
+        self.adapter_registry.register(GenericNetworkDeviceAdapter(session_factory=self.SessionLocal))
+        self.adapter_registry.register(LocalHostAdapter())
         self.adapter_registry.register(PlatformAgentAdapter("android_companion", "smartphone", "Android", self.agent_hub))
         self.adapter_registry.register(PlatformAgentAdapter("ios_companion", "smartphone", "iOS", self.agent_hub))
         self.adapter_registry.register(PlatformAgentAdapter("linux_agent", "desktop", "Linux", self.agent_hub))

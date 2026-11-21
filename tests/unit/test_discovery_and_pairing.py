@@ -329,3 +329,137 @@ def test_lan_and_cgnat_trust_and_network_diagnostics(tmp_data_dir: Path):
         assert unsafe_res.status_code == 200
         assert unsafe_res.json()["lan_host"] != "8.8.8.8"
 
+
+def test_macos_sequoia_redacted_arp_and_local_host_and_companion_mailbox(tmp_data_dir: Path):
+    import base64
+    import json as _json
+    import time
+    from fastapi.testclient import TestClient
+    from home_os.config import Settings
+    from home_os.main import create_app
+    from home_os.security.replay import sign_device_request
+    from home_os.services.discovery import parse_macos_arp_output
+
+    # 1. macOS Sonoma/Sequoia privacy-redacted MAC (`0:0:0:0:0:0`) on en0 is preserved!
+    redacted_arp = "? (192.168.1.77) at 0:0:0:0:0:0 on en0 ifscope [ethernet]\n"
+    eps = parse_macos_arp_output(redacted_arp, local_ips={"127.0.0.1", "192.168.1.10"})
+    assert len(eps) == 1
+    assert eps[0].ip_address == "192.168.1.77"
+    assert eps[0].hardware_fingerprint.startswith("arp-ip-")
+
+    app = create_app(Settings(data_dir=tmp_data_dir))
+    with TestClient(app) as client:
+        setup_res = client.post(
+            "/api/v1/auth/setup",
+            json={"username": "owner", "display_name": "Owner", "password": "StrongPassword123!"},
+        )
+        headers = {"X-HomeOS-Token": setup_res.json()["access_token"]}
+
+        # 2. Local Host adapter enrolls & executes real process / telemetry commands
+        lh_res = client.post("/api/v1/devices/enroll-local-host", headers=headers)
+        assert lh_res.status_code == 200
+        lh_id = lh_res.json()["device"]["id"]
+
+        proc_cmd = client.post(
+            f"/api/v1/devices/{lh_id}/commands",
+            headers=headers,
+            json={"capability_key": "processes.list", "parameters": {"limit": 6}},
+        )
+        assert proc_cmd.status_code == 200
+        assert proc_cmd.json()["command"]["status"] in ("verified", "succeeded")
+        assert len(proc_cmd.json()["command"]["result"]["processes"]) >= 1
+
+        # 3. Mobile Companion Standby Mailbox queues commands while screen is off & delivers on poll
+        init_res = client.post(
+            "/api/v1/pairing/initiate",
+            headers=headers,
+            json={"adapter_type": "ios_companion", "requested_permissions": ["telemetry:read", "notifications:reply"]},
+        ).json()
+
+        comp_res = client.post(
+            "/api/v1/pairing/complete",
+            json={
+                "pairing_session_id": init_res["session_id"],
+                "pin_or_token": init_res["pin"],
+                "hardware_fingerprint": "mob-iphone-test-1",
+                "name": "Owner iPhone",
+                "category": "smartphone",
+                "capabilities": [
+                    {
+                        "capability_key": "device.ring",
+                        "category": "audio",
+                        "display_name": "Find My Phone",
+                        "supported": True,
+                        "requires_permission": "telemetry:read",
+                    }
+                ],
+            },
+        ).json()
+        dev_id = comp_res["credentials"]["device_id"]
+        dev_token = comp_res["credentials"]["device_token"]
+        hmac_sec = comp_res["credentials"]["hmac_secret"]
+
+        # Companion reports mobile_web mode -> enables standby mailbox
+        t_body = _json.dumps({"health_score": 100, "attributes": {"companion_mode": "mobile_web"}}).encode()
+        ts = int(time.time())
+        sig = sign_device_request(
+            secret=hmac_sec,
+            method="POST",
+            path="/api/v1/agent/telemetry",
+            timestamp=ts,
+            nonce="nonce-mbx-001",
+            body=t_body,
+        )
+        assert (
+            client.post(
+                "/api/v1/agent/telemetry",
+                content=t_body,
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Device-Id": dev_id,
+                    "X-Device-Token": dev_token,
+                    "X-Timestamp": str(ts),
+                    "X-Nonce": "nonce-mbx-001",
+                    "X-Signature": sig,
+                },
+            ).status_code
+            == 200
+        )
+
+        # Even with NO active WebSocket, ringing the phone queues cleanly instead of failing!
+        ring_res = client.post(
+            f"/api/v1/devices/{dev_id}/commands",
+            headers=headers,
+            json={"capability_key": "device.ring", "parameters": {"message": "Locate"}},
+        )
+        assert ring_res.status_code == 200
+        assert ring_res.json()["command"]["verification_method"] == "queued_for_mobile_wakeup"
+
+        # Polling pops the queued ring command
+        p_body = b"{}"
+        sig2 = sign_device_request(
+            secret=hmac_sec,
+            method="POST",
+            path="/api/v1/agent/poll",
+            timestamp=ts,
+            nonce="nonce-mbx-002",
+            body=p_body,
+        )
+        poll_res = client.post(
+            "/api/v1/agent/poll",
+            content=p_body,
+            headers={
+                "Content-Type": "application/json",
+                "X-Device-Id": dev_id,
+                "X-Device-Token": dev_token,
+                "X-Timestamp": str(ts),
+                "X-Nonce": "nonce-mbx-002",
+                "X-Signature": sig2,
+            },
+        )
+        assert poll_res.status_code == 200
+        queued_cmds = poll_res.json()["commands"]
+        assert len(queued_cmds) == 1
+        assert queued_cmds[0]["capability_key"] == "device.ring"
+
+

@@ -45,7 +45,7 @@ MDNS_SERVICE_TYPES = [
 
 VIRTUAL_IFACE_PREFIXES = (
     "lo", "utun", "tun", "tap", "wg", "tailscale", "docker", "br-", "veth",
-    "vmnet", "vboxnet", "awdl", "llw", "anpi", "gif", "stf", "ap", "bridge",
+    "vmnet", "vboxnet", "awdl", "llw", "anpi", "gif", "stf", "ap", "bridge0",
 )
 
 OUI_VENDOR_PREFIXES: dict[str, str] = {
@@ -76,7 +76,7 @@ OUI_VENDOR_PREFIXES: dict[str, str] = {
 }
 
 MACOS_ARP_LINE_RE = re.compile(
-    r"^(?P<host>\S+)\s+\((?P<ip>\d+\.\d+\.\d+\.\d+)\)\s+at\s+(?P<mac>[0-9a-fA-F:]{11,17})\s+on\s+(?P<iface>\S+)"
+    r"^(?P<host>\S+)\s+\((?P<ip>\d+\.\d+\.\d+\.\d+)\)\s+at\s+(?P<mac>\S+)\s+on\s+(?P<iface>\S+)"
 )
 
 CGNAT_IPV4_NET = ipaddress.ip_network("100.64.0.0/10")
@@ -291,17 +291,50 @@ def get_primary_lan_ipv4() -> str:
     return "127.0.0.1"
 
 
+def _get_default_gateway_ipv4() -> str | None:
+    if sys.platform == "darwin" and Path("/sbin/route").exists():
+        try:
+            proc = subprocess.run(
+                ["/sbin/route", "-n", "get", "default"],
+                capture_output=True,
+                text=True,
+                timeout=1.5,
+                check=False,
+            )
+            m = re.search(r"gateway:\s*(\d+\.\d+\.\d+\.\d+)", proc.stdout or "")
+            if m:
+                return m.group(1)
+        except Exception:
+            pass
+    else:
+        try:
+            proc = subprocess.run(["ip", "route", "show", "default"], capture_output=True, text=True, timeout=1.5, check=False)
+            m = re.search(r"default via (\d+\.\d+\.\d+\.\d+)", proc.stdout or "")
+            if m:
+                return m.group(1)
+        except Exception:
+            pass
+    return None
+
+
 def get_active_lan_subnets() -> list[ipaddress.IPv4Network]:
     subnets: list[ipaddress.IPv4Network] = []
     seen: set[str] = set()
     for entry in list_lan_interfaces():
         ip_str = entry["ip"]
-        # Scan the /24 neighborhood around the host's physical Wi-Fi IP
         prefix = max(24, int(entry.get("prefix") or 24))
         net = ipaddress.IPv4Network(f"{ip_str}/{prefix}", strict=False)
         if str(net) not in seen:
             seen.add(str(net))
             subnets.append(net)
+
+    gw = _get_default_gateway_ipv4()
+    if gw and _is_safe_lan_ip(gw):
+        gw_net = ipaddress.IPv4Network(f"{gw}/24", strict=False)
+        if str(gw_net) not in seen:
+            seen.add(str(gw_net))
+            subnets.append(gw_net)
+
     return subnets[:2]
 
 
@@ -344,15 +377,23 @@ def parse_macos_arp_output(output: str, local_ips: set[str] | None = None) -> li
         ip_addr = m.group("ip")
         if not _is_usable_peer_ip(ip_addr, local_ips):
             continue
-        norm_mac = normalize_mac(m.group("mac"))
-        if not norm_mac:
+        raw_mac = m.group("mac").strip().lower()
+        if raw_mac in ("(incomplete)", "incomplete", "ff:ff:ff:ff:ff:ff") or raw_mac.startswith(("1:0:5e:", "01:00:5e:", "33:33:")):
             continue
-        host_raw = m.group("host")
-        hostname = None if host_raw == "?" else host_raw.rstrip(".")
-        fp = f"arp-{norm_mac.lower()}"
+        norm_mac = normalize_mac(raw_mac)
+        # On macOS Sonoma/Sequoia, non-root processes may see privacy-redacted MACs (`0:0:0:0:0:0`)
+        # for live Wi-Fi neighbors on en0 — preserve the live host by IP fingerprint instead of dropping it!
+        if norm_mac:
+            fp = f"arp-{norm_mac.lower()}"
+        elif raw_mac in ("0:0:0:0:0:0", "00:00:00:00:00:00", "(redacted)"):
+            fp = "arp-ip-" + hashlib.sha256(ip_addr.encode("utf-8")).hexdigest()[:24]
+        else:
+            continue
         if fp in seen:
             continue
         seen.add(fp)
+        host_raw = m.group("host")
+        hostname = None if host_raw == "?" else host_raw.rstrip(".")
         endpoints.append(
             DiscoveredEndpoint(
                 hardware_fingerprint=fp,
@@ -670,7 +711,7 @@ class DiscoveryService:
         return [ep for ep in resolved if isinstance(ep, DiscoveredEndpoint)]
 
     async def probe_active_subnets(self, *, local_ips: set[str]) -> tuple[dict[str, list[int]], set[str]]:
-        """Actively sweeps the physical Wi-Fi /24 subnet to detect live phones/TVs and warm OS ARP cache."""
+        """Low-FD multi-stage Wi-Fi /24 sweep: 1-socket UDP ARP trigger + fast TCP RST/SYN liveness + service fingerprinting."""
         subnets = get_active_lan_subnets()
         if not subnets:
             return {}, set()
@@ -687,38 +728,85 @@ class DiscoveryService:
         if not peer_ips:
             return {}, set()
 
-        sem = asyncio.Semaphore(128)
+        # Stage 1: Single-socket UDP datagram sweep (uses 1 FD, forces kernel Layer-2 ARP Who-has across entire /24 in <10ms)
+        def _udp_arp_sweep() -> None:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            try:
+                sock.setblocking(False)
+                for ip_str in peer_ips:
+                    try:
+                        sock.sendto(b"\x00", (ip_str, 9))
+                    except OSError:
+                        pass
+            finally:
+                sock.close()
+
+        await asyncio.to_thread(_udp_arp_sweep)
+
         open_ports: dict[str, list[int]] = {}
         alive_ips: set[str] = set()
+        gw_ip = _get_default_gateway_ipv4()
+        if gw_ip and _is_usable_peer_ip(gw_ip, local_ips):
+            alive_ips.add(gw_ip)
 
-        async def _probe_host(ip_str: str) -> None:
-            async with sem:
-                for port in (62078, 8009, 6466, 7000, 8123, 1400, 80, 443):
+        # Stage 2: Fast 2-port TCP SYN/RST liveness sweep across all 254 IPs (low concurrency = 36 FDs max)
+        liveness_sem = asyncio.Semaphore(36)
+
+        async def _fast_liveness(ip_str: str) -> None:
+            async with liveness_sem:
+                for p in (62078, 80):
                     try:
-                        _reader, writer = await asyncio.wait_for(
-                            asyncio.open_connection(ip_str, port),
-                            timeout=0.25,
-                        )
-                        writer.close()
+                        _r, w = await asyncio.wait_for(asyncio.open_connection(ip_str, p), timeout=0.14)
+                        w.close()
                         try:
-                            await writer.wait_closed()
+                            await w.wait_closed()
                         except Exception:
                             pass
                         alive_ips.add(ip_str)
-                        open_ports.setdefault(ip_str, []).append(port)
+                        open_ports.setdefault(ip_str, []).append(p)
+                        return
                     except ConnectionRefusedError:
-                        # A TCP RST proves the device is awake and reachable on Wi-Fi even with closed ports!
+                        # Immediate TCP RST proves phone/computer is awake on Wi-Fi
                         alive_ips.add(ip_str)
+                        return
                     except (TimeoutError, asyncio.TimeoutError, OSError):
                         continue
 
         try:
             await asyncio.wait_for(
-                asyncio.gather(*[_probe_host(ip_str) for ip_str in peer_ips], return_exceptions=True),
-                timeout=3.2,
+                asyncio.gather(*[_fast_liveness(ip_str) for ip_str in peer_ips], return_exceptions=True),
+                timeout=2.6,
             )
         except (TimeoutError, asyncio.TimeoutError):
             pass
+
+        # Collect any additional ARP-confirmed neighbors before Stage 3 service classification
+        arp_now = await asyncio.to_thread(self.scan_arp_and_interfaces, local_ips)
+        for ep in arp_now:
+            if ep.ip_address:
+                alive_ips.add(ep.ip_address)
+
+        # Stage 3: Multi-port protocol classification ONLY on confirmed live Wi-Fi hosts
+        svc_sem = asyncio.Semaphore(20)
+
+        async def _fingerprint_live_host(ip_str: str) -> None:
+            async with svc_sem:
+                for port in (62078, 5555, 8009, 6466, 7000, 8123, 1400, 445, 80, 443):
+                    if port in open_ports.get(ip_str, []):
+                        continue
+                    try:
+                        _r, w = await asyncio.wait_for(asyncio.open_connection(ip_str, port), timeout=0.22)
+                        w.close()
+                        try:
+                            await w.wait_closed()
+                        except Exception:
+                            pass
+                        open_ports.setdefault(ip_str, []).append(port)
+                    except (ConnectionRefusedError, TimeoutError, asyncio.TimeoutError, OSError):
+                        continue
+
+        if alive_ips:
+            await asyncio.gather(*[_fingerprint_live_host(ip_str) for ip_str in sorted(alive_ips)], return_exceptions=True)
 
         return open_ports, alive_ips
 

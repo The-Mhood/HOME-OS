@@ -58,10 +58,19 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd == "serve":
         import os
+        try:
+            import resource
+            soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+            target = min(hard, 8192) if hard > 0 else 8192
+            if soft < target:
+                resource.setrlimit(resource.RLIMIT_NOFILE, (target, hard))
+        except Exception:
+            pass
         host = args.host or settings.bind_host
         port = args.port or settings.bind_port
         os.environ["HOMEOS_BIND_HOST"] = host
         os.environ["HOMEOS_BIND_PORT"] = str(port)
+        os.environ.setdefault("HOMEOS_AUTO_ENROLL_HOST", "1")
         ssl_kwargs = {}
         if args.tls:
             from home_os.security.crypto import ensure_local_tls_certificate

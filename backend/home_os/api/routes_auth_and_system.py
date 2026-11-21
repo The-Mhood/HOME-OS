@@ -47,7 +47,7 @@ def health_check(runtime: HomeOsRuntime = Depends(get_runtime)):
     return {
         "status": "ok",
         "version": runtime.settings.app_version,
-        "api_revision": "1.2.0",
+        "api_revision": "1.3.0",
         "bind_host": runtime.settings.bind_host,
         "bind_port": runtime.settings.bind_port,
         "lan_ip": get_primary_lan_ipv4(),

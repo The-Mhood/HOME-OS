@@ -55,6 +55,9 @@ async def publish_agent_telemetry(
             is_muted=bool(ms.get("is_muted", False)),
         )
 
+    if payload.attributes.get("companion_mode") == "mobile_web":
+        runtime.agent_hub.enable_mailbox(device.id)
+
     db.commit()
 
     if payload.battery_level is not None and payload.battery_level != prev_battery:
@@ -166,6 +169,7 @@ async def agent_bidirectional_websocket(
 
     await websocket.accept()
     session = runtime.agent_hub.register_session(device_id, adapter_type, websocket)
+    await runtime.agent_hub.flush_mailbox_to_ws(device_id)
     await runtime.event_bus.publish("device.connected", {"device_id": device_id, "adapter_type": adapter_type})
     with runtime.SessionLocal() as db:
         await runtime.automations.evaluate_event(db=db, event_type="device.connected", event_payload={"device_id": device_id})
@@ -182,6 +186,9 @@ async def agent_bidirectional_websocket(
             elif mtype == "telemetry":
                 data = msg.get("payload") or {}
                 session.last_telemetry = data
+                attrs = data.get("attributes") or data
+                if isinstance(attrs, dict) and attrs.get("companion_mode") == "mobile_web":
+                    runtime.agent_hub.enable_mailbox(device_id)
                 with runtime.SessionLocal() as db:
                     dev = db.get(Device, device_id)
                     if dev is not None:
@@ -192,7 +199,7 @@ async def agent_bidirectional_websocket(
                             dev.battery_level = int(data["battery_level"])
                         if "is_charging" in data:
                             dev.is_charging = data["is_charging"]
-                        dev.health_details_json = data.get("attributes") or data
+                        dev.health_details_json = attrs
                         if "capabilities" in data and isinstance(data["capabilities"], list):
                             runtime.pairing.sync_device_capabilities(db, device_id, data["capabilities"])
                             session.capabilities = [CapabilityDescriptor(**c) for c in data["capabilities"]]
@@ -230,14 +237,150 @@ async def agent_bidirectional_websocket(
         pass
     finally:
         runtime.agent_hub.unregister_session(device_id)
+        is_standby = runtime.agent_hub.has_mailbox(device_id)
         with runtime.SessionLocal() as db:
             dev = db.get(Device, device_id)
             if dev is not None and dev.lifecycle_state != "isolated":
-                dev.connection_status = "offline"
+                dev.connection_status = "standby" if is_standby else "offline"
                 db.commit()
-            await runtime.automations.evaluate_event(
-                db=db,
-                event_type="device.disconnected",
-                event_payload={"device_id": device_id},
+            if not is_standby:
+                await runtime.automations.evaluate_event(
+                    db=db,
+                    event_type="device.disconnected",
+                    event_payload={"device_id": device_id},
+                )
+        await runtime.event_bus.publish(
+            "device.standby" if is_standby else "device.disconnected",
+            {"device_id": device_id},
+        )
+
+
+@router.post("/agent/poll")
+async def poll_queued_companion_commands(
+    device: Device = Depends(verify_authenticated_device),
+    db: Session = Depends(get_db),
+    runtime: HomeOsRuntime = Depends(get_runtime),
+):
+    runtime.agent_hub.enable_mailbox(device.id)
+    device.last_seen_at = datetime.now(timezone.utc)
+    if device.connection_status not in ("online", "isolated"):
+        device.connection_status = "standby"
+    db.commit()
+    queued = runtime.agent_hub.pop_queued_commands(device.id)
+    return {"commands": queued}
+
+
+@router.post("/agent/drop-file")
+async def companion_drop_file_to_host(
+    payload: dict,
+    device: Device = Depends(verify_authenticated_device),
+    db: Session = Depends(get_db),
+    runtime: HomeOsRuntime = Depends(get_runtime),
+):
+    import base64
+    import hashlib
+    import re
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    raw_name = str(payload.get("filename") or "upload.bin")
+    safe_name = re.sub(r"[^A-Za-z0-9._ -]", "_", Path(raw_name).name)[:120] or "upload.bin"
+    content_b64 = str(payload.get("content_b64") or "")
+    if len(content_b64) > 35_000_000:
+        raise HTTPException(status_code=413, detail="File exceeds 25 MB instant drop limit")
+    try:
+        raw_bytes = base64.b64decode(content_b64)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid base64 payload")
+
+    actual_sha = hashlib.sha256(raw_bytes).hexdigest()
+    expected_sha = payload.get("sha256")
+    if expected_sha and expected_sha != actual_sha:
+        raise HTTPException(status_code=422, detail="SHA-256 integrity mismatch")
+
+    shared_dir = (Path.home() / "HomeOS-Shared").resolve()
+    shared_dir.mkdir(parents=True, exist_ok=True)
+    dest = (shared_dir / safe_name).resolve()
+    if shared_dir not in dest.parents:
+        raise HTTPException(status_code=400, detail="Invalid file path")
+
+    if dest.exists():
+        stem, suffix = dest.stem, dest.suffix
+        ts = datetime.now(timezone.utc).strftime("%H%M%S")
+        dest = shared_dir / f"{stem}_{ts}{suffix}"
+
+    dest.write_bytes(raw_bytes)
+
+    if sys.platform == "darwin" and Path("/usr/bin/osascript").exists():
+        try:
+            subprocess.Popen(
+                [
+                    "/usr/bin/osascript",
+                    "-e",
+                    f'display notification "Saved {dest.name} to ~/HomeOS-Shared" with title "HOME OS File Drop ({device.name})" sound name "Glass"',
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
             )
-        await runtime.event_bus.publish("device.disconnected", {"device_id": device_id})
+        except Exception:
+            pass
+
+    append_audit_log(
+        db,
+        severity="info",
+        category="files",
+        event_type="companion.file_dropped",
+        actor_type="device",
+        actor_id=device.id,
+        device_id=device.id,
+        outcome="success",
+        details={"filename": dest.name, "size_bytes": len(raw_bytes), "sha256": actual_sha},
+    )
+    db.commit()
+    await runtime.event_bus.publish(
+        "file.received",
+        {"device_id": device.id, "device_name": device.name, "filename": dest.name, "path": str(dest)},
+    )
+    return {"saved_path": str(dest), "filename": dest.name, "size_bytes": len(raw_bytes), "sha256": actual_sha}
+
+
+@router.post("/agent/beam-clipboard")
+async def companion_beam_clipboard_to_host(
+    payload: dict,
+    device: Device = Depends(verify_authenticated_device),
+    db: Session = Depends(get_db),
+    runtime: HomeOsRuntime = Depends(get_runtime),
+):
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    text = str(payload.get("text") or "")[:16000]
+    if not text:
+        raise HTTPException(status_code=400, detail="Empty clipboard text")
+
+    copied_native = False
+    if sys.platform == "darwin" and Path("/usr/bin/pbcopy").exists():
+        try:
+            subprocess.run(["/usr/bin/pbcopy"], input=text, text=True, timeout=2.0, check=False)
+            copied_native = True
+            if Path("/usr/bin/osascript").exists():
+                preview = text[:60].replace('"', "'").replace("\n", " ")
+                subprocess.Popen(
+                    [
+                        "/usr/bin/osascript",
+                        "-e",
+                        f'display notification "Copied to Mac clipboard: {preview}" with title "HOME OS ({device.name})" sound name "Pop"',
+                    ],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+        except Exception:
+            pass
+
+    await runtime.event_bus.publish(
+        "automation.notification",
+        {"title": f"Clipboard from {device.name}", "message": text[:160]},
+    )
+    return {"copied_to_host_clipboard": copied_native, "length": len(text)}

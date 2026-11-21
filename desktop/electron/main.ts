@@ -137,8 +137,8 @@ async function ensureLocalBackendRunning(port: string): Promise<boolean> {
     if (process.env.HOMEOS_EXTERNAL_BACKEND === '1') {
       return true;
     }
-    // If an older loopback-only instance is holding port 8420, replace it so Wi-Fi QR pairing works
-    if (initial.bindHost === '0.0.0.0' && initial.apiRevision === '1.2.0') {
+    // If an older loopback-only or pre-1.3.0 instance is holding port 8420, replace it
+    if (initial.bindHost === '0.0.0.0' && initial.apiRevision === '1.3.0') {
       return true;
     }
     stopStalePortListener(port);
@@ -171,17 +171,20 @@ async function ensureLocalBackendRunning(port: string): Promise<boolean> {
   ].join(':');
 
   try {
+    const logFd = fs.openSync(path.join(dataDir, 'hub.log'), 'a');
     backendProcess = spawn(binPath, ['serve', '--host', '0.0.0.0', '--port', port], {
       cwd: dataDir,
-      stdio: 'ignore',
+      stdio: ['ignore', logFd, logFd],
       env: {
         ...process.env,
         PATH: augmentedPath,
         HOMEOS_BIND_HOST: '0.0.0.0',
+        HOMEOS_AUTO_ENROLL_HOST: '1',
         HOMEOS_DATA_DIR: dataDir,
         ...(staticDir ? { HOMEOS_STATIC_DIR: staticDir } : {}),
       },
     });
+    fs.closeSync(logFd);
     backendProcess.on('error', (err) => {
       lastSpawnError = err.message;
       backendProcess = null;

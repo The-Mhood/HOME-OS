@@ -33,6 +33,9 @@ export const DeviceDetailsView: React.FC<Props> = ({
   const [selectedRoom, setSelectedRoom] = useState('');
   const [volumeLevel, setVolumeLevel] = useState(50);
   const [appTarget, setAppTarget] = useState('');
+  const [notifyText, setNotifyText] = useState('');
+  const [clipText, setClipText] = useState('');
+  const [netResult, setNetResult] = useState<string | null>(null);
   const [processSnapshot, setProcessSnapshot] = useState<Array<{ pid: number; name: string; cmdline?: string }> | null>(null);
   const [rotatedSecretInfo, setRotatedSecretInfo] = useState<{ key_version: number; device_token: string } | null>(null);
 
@@ -72,11 +75,33 @@ export const DeviceDetailsView: React.FC<Props> = ({
       if (capabilityKey === 'processes.list' && Array.isArray(cmd.result.processes)) {
         setProcessSnapshot(cmd.result.processes as Array<{ pid: number; name: string; cmdline?: string }>);
       }
+      if (capabilityKey === 'network.ping') {
+        const rtt = cmd.result.rtt_ms != null ? `${cmd.result.rtt_ms} ms` : 'timeout';
+        setNetResult(`Ping ${String(cmd.result.ip_address || '')}: ${cmd.result.reachable ? `Reachable (${rtt})` : 'Unreachable'}`);
+      } else if (capabilityKey === 'network.port_scan' && Array.isArray(cmd.result.open_services)) {
+        const svcs = (cmd.result.open_services as Array<{ port: number; service: string }>)
+          .map((s) => `${s.port}/${s.service}`)
+          .join(', ');
+        setNetResult(`Open TCP services: ${svcs || 'None listening (ports firewalled/closed)'}`);
+      } else if (capabilityKey === 'network.wake_on_lan') {
+        setNetResult(`Sent 102-byte Magic Packet to ${String(cmd.result.mac_address || '')}`);
+      }
       onNotify(`Command ${capabilityKey} -> ${cmd.status} (${cmd.verification_method || 'queued'})`);
       await loadDetail();
       await onRefreshGlobal();
     } catch (err) {
       onNotify(err instanceof Error ? err.message : 'Command failed');
+    }
+  };
+
+  const handleEnrollNetwork = async () => {
+    try {
+      await apiRequest(`/devices/${device.id}/enroll-network`, { method: 'POST' });
+      onNotify('Enabled Wi-Fi Network Tools (Ping, Port Scan, Wake-on-LAN) for this device.');
+      await loadDetail();
+      await onRefreshGlobal();
+    } catch (err) {
+      onNotify(err instanceof Error ? err.message : 'Failed to enroll network device');
     }
   };
 
@@ -286,7 +311,9 @@ export const DeviceDetailsView: React.FC<Props> = ({
                   ? 'Shortcut name'
                   : device.adapter_type === 'google_tv'
                   ? 'https://www.youtube.com/tv'
-                  : 'App ID / package (e.g. terminal_info)'
+                  : device.adapter_type === 'local_host'
+                  ? 'App name (e.g. Safari, Music, Notes) or https://...'
+                  : 'https://youtube.com or App / Deep-Link'
               }
               value={appTarget}
               onChange={(e) => setAppTarget(e.target.value)}
@@ -294,7 +321,12 @@ export const DeviceDetailsView: React.FC<Props> = ({
             <button
               className="btn btn-sm btn-primary"
               onClick={() => {
-                if (!appTarget.trim()) return;
+                const trimmed = appTarget.trim();
+                if (!trimmed) return;
+                if (trimmed.startsWith('http://') || trimmed.startsWith('https://') || trimmed.includes('://')) {
+                  void sendCommand(cap.capability_key, { url: trimmed, app_link: trimmed });
+                  return;
+                }
                 const paramKey =
                   cap.capability_key === 'shortcuts.run'
                     ? 'shortcut_name'
@@ -305,11 +337,85 @@ export const DeviceDetailsView: React.FC<Props> = ({
                     : device.adapter_type === 'macos_agent'
                     ? 'bundle_id'
                     : 'app_id';
-                void sendCommand(cap.capability_key, { [paramKey]: appTarget.trim() });
+                void sendCommand(cap.capability_key, { [paramKey]: trimmed });
               }}
             >
               Launch
             </button>
+          </div>
+        )}
+
+        {cap.capability_key === 'device.ring' && (
+          <div>
+            <button
+              className="btn btn-sm btn-primary"
+              onClick={() => sendCommand('device.ring', { message: 'Find My Phone triggered from HOME OS' })}
+            >
+              🔔 Ring Device Loudly (Siren + Vibrate)
+            </button>
+          </div>
+        )}
+
+        {cap.capability_key === 'device.notify' && (
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <input
+              className="input"
+              style={{ flex: 1 }}
+              placeholder="Alert message to display on device..."
+              value={notifyText}
+              onChange={(e) => setNotifyText(e.target.value)}
+            />
+            <button
+              className="btn btn-sm btn-primary"
+              onClick={() => {
+                const msg = notifyText.trim() || 'Hello from HOME OS Command Centre!';
+                void sendCommand('device.notify', { title: 'HOME OS', message: msg });
+                setNotifyText('');
+              }}
+            >
+              Send Alert
+            </button>
+          </div>
+        )}
+
+        {cap.capability_key === 'clipboard.send' && (
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <input
+              className="input"
+              style={{ flex: 1 }}
+              placeholder="Text, link, or code to copy to device clipboard..."
+              value={clipText}
+              onChange={(e) => setClipText(e.target.value)}
+            />
+            <button
+              className="btn btn-sm btn-primary"
+              onClick={() => {
+                if (!clipText.trim()) return;
+                void sendCommand('clipboard.send', { text: clipText.trim() });
+                setClipText('');
+              }}
+            >
+              Copy to Device
+            </button>
+          </div>
+        )}
+
+        {(cap.capability_key === 'network.ping' ||
+          cap.capability_key === 'network.port_scan' ||
+          cap.capability_key === 'network.wake_on_lan') && (
+          <div>
+            <button className="btn btn-sm btn-primary" onClick={() => sendCommand(cap.capability_key, {})}>
+              {cap.capability_key === 'network.ping'
+                ? 'Run Live Wi-Fi Ping'
+                : cap.capability_key === 'network.port_scan'
+                ? 'Scan Open TCP Services'
+                : 'Broadcast Wake-on-LAN Magic Packet'}
+            </button>
+            {netResult && (
+              <div className="mono" style={{ marginTop: '8px', fontSize: '11.5px', color: '#38bdf8' }}>
+                {netResult}
+              </div>
+            )}
           </div>
         )}
 
@@ -366,6 +472,11 @@ export const DeviceDetailsView: React.FC<Props> = ({
         </div>
 
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          {!device.is_registered && (
+            <button className="btn btn-sm btn-primary" onClick={handleEnrollNetwork}>
+              <ShieldCheck size={14} /> Enable Wi-Fi Network Tools
+            </button>
+          )}
           <button className="btn btn-sm" onClick={handleReconnect}>
             <RefreshCw size={14} /> Reconnect / Probe
           </button>

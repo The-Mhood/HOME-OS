@@ -58,10 +58,41 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        import os
+
+        try:
+            import resource
+            soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+            target = min(hard, 8192) if hard > 0 else 8192
+            if soft < target:
+                resource.setrlimit(resource.RLIMIT_NOFILE, (target, hard))
+        except Exception:
+            pass
+
+        boot_scan_task: asyncio.Task | None = None
+        if os.environ.get("HOMEOS_AUTO_ENROLL_HOST") == "1":
+            try:
+                with runtime.SessionLocal() as db:
+                    runtime.pairing.ensure_local_host_enrolled(db)
+            except Exception:
+                pass
+
+            async def _initial_wifi_scan() -> None:
+                await asyncio.sleep(0.8)
+                try:
+                    with runtime.SessionLocal() as db:
+                        await runtime.discovery.scan_all(db=db)
+                except Exception:
+                    pass
+
+            boot_scan_task = asyncio.create_task(_initial_wifi_scan())
+
         sched_task = asyncio.create_task(_automation_schedule_worker(runtime))
         try:
             yield
         finally:
+            if boot_scan_task is not None:
+                boot_scan_task.cancel()
             sched_task.cancel()
             try:
                 await sched_task
