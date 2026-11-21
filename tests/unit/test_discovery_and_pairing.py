@@ -1,0 +1,205 @@
+import asyncio
+import http.server
+import socket
+import threading
+from pathlib import Path
+import pytest
+
+from home_os.db.models import Base, Device, User
+from home_os.db.session import create_db_engine_and_session
+from home_os.security.crypto import CredentialVault, ensure_local_tls_certificate, hash_password
+from home_os.services.discovery import DiscoveryService, parse_ssdp_response, lookup_mac_vendor
+from home_os.services.event_bus import EventBus
+from home_os.services.pairing import PairingError, PairingService
+
+
+UPNP_SAMPLE_XML = b"""<?xml version="1.0"?>
+<root xmlns="urn:schemas-upnp-org:device-1-0">
+  <device>
+    <deviceType>urn:schemas-upnp-org:device:MediaRenderer:1</deviceType>
+    <friendlyName>Living Room Sonos Era 100</friendlyName>
+    <manufacturer>Sonos, Inc.</manufacturer>
+    <modelName>Sonos Era 100</modelName>
+    <UDN>uuid:RINCON_5CAAFD00112201400</UDN>
+  </device>
+</root>
+"""
+
+
+class _QuietXmlHandler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "application/xml")
+        self.send_header("Content-Length", str(len(UPNP_SAMPLE_XML)))
+        self.end_headers()
+        self.wfile.write(UPNP_SAMPLE_XML)
+
+    def log_message(self, format, *args):
+        return
+
+
+@pytest.mark.asyncio
+async def test_ssdp_discovery_parses_upnp_xml_and_keeps_device_unpaired(tmp_data_dir: Path):
+    # Start local UPnP XML HTTP server
+    xml_server = http.server.HTTPServer(("127.0.0.1", 0), _QuietXmlHandler)
+    xml_port = xml_server.server_address[1]
+    xml_thread = threading.Thread(target=xml_server.serve_forever, daemon=True)
+    xml_thread.start()
+
+    # Start local UDP SSDP responder
+    udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    udp_sock.bind(("127.0.0.1", 0))
+    ssdp_port = udp_sock.getsockname()[1]
+
+    def _ssdp_responder():
+        udp_sock.settimeout(2.0)
+        try:
+            _data, addr = udp_sock.recvfrom(2048)
+            reply = (
+                "HTTP/1.1 200 OK\r\n"
+                f"LOCATION: http://127.0.0.1:{xml_port}/desc.xml\r\n"
+                "ST: urn:schemas-upnp-org:device:MediaRenderer:1\r\n"
+                "USN: uuid:RINCON_5CAAFD00112201400::urn:schemas-upnp-org:device:MediaRenderer:1\r\n"
+                "SERVER: Linux UPnP/1.0 Sonos/79.1\r\n\r\n"
+            ).encode("utf-8")
+            udp_sock.sendto(reply, addr)
+        except TimeoutError:
+            pass
+        finally:
+            udp_sock.close()
+
+    resp_thread = threading.Thread(target=_ssdp_responder, daemon=True)
+    resp_thread.start()
+
+    engine, SessionLocal = create_db_engine_and_session(f"sqlite:///{tmp_data_dir / 'disc.db'}")
+    Base.metadata.create_all(bind=engine)
+    bus = EventBus()
+    discovery = DiscoveryService(event_bus=bus)
+
+    try:
+        endpoints = await discovery.scan_ssdp(
+            target=("127.0.0.1", ssdp_port),
+            timeout=1.0,
+        )
+        assert len(endpoints) == 1
+        ep = endpoints[0]
+        assert ep.raw_properties["friendly_name"] == "Living Room Sonos Era 100"
+        assert ep.raw_properties["manufacturer"] == "Sonos, Inc."
+
+        with SessionLocal() as db:
+            ingested = await discovery.ingest_discovered_endpoints(db, endpoints)
+            assert len(ingested) == 1
+            dev = ingested[0]
+            # CRITICAL REQUIREMENT: Discovering a device MUST NEVER grant private access or mark authenticated!
+            assert dev.lifecycle_state in ("discovered", "identified")
+            assert dev.connection_status == "unpaired"
+            assert dev.credential is None
+            assert len(dev.permissions) == 0
+    finally:
+        xml_server.shutdown()
+
+
+def test_xxe_attack_in_upnp_xml_is_blocked():
+    malicious_xml = b"""<?xml version="1.0"?>
+    <!DOCTYPE foo [
+      <!ELEMENT foo ANY >
+      <!ENTITY xxe SYSTEM "file:///etc/passwd" >]>
+    <root><device><friendlyName>&xxe;</friendlyName></device></root>
+    """
+    from home_os.services.discovery import parse_upnp_description_xml
+
+    parsed = parse_upnp_description_xml(malicious_xml)
+    assert parsed == {}
+
+
+def test_mac_oui_vendor_lookup():
+    assert lookup_mac_vendor("3C:22:FB:11:22:33") == "Apple"
+    assert lookup_mac_vendor("DC:A6:32:AA:BB:CC") == "Raspberry Pi"
+
+
+@pytest.mark.asyncio
+async def test_secure_qr_and_pin_pairing_enrollment_and_rotation(tmp_data_dir: Path):
+    engine, SessionLocal = create_db_engine_and_session(f"sqlite:///{tmp_data_dir / 'pair.db'}")
+    Base.metadata.create_all(bind=engine)
+    vault = CredentialVault(tmp_data_dir / "master.key")
+    tls_info = ensure_local_tls_certificate(tmp_data_dir / "tls")
+    bus = EventBus()
+    pairing = PairingService(vault=vault, event_bus=bus, tls_fingerprint=tls_info.sha256_fingerprint)
+
+    with SessionLocal() as db:
+        owner = User(
+            id="u-1",
+            username="admin",
+            display_name="Admin",
+            password_hash=hash_password("SuperSecurePass!1"),
+            role="owner",
+            is_active=True,
+        )
+        db.add(owner)
+        db.commit()
+
+        initiation = pairing.initiate_pairing(
+            db=db,
+            user_id="u-1",
+            adapter_type="android_companion",
+            hub_host="192.168.1.10",
+            hub_port=8420,
+            requested_permissions=["telemetry:read", "notifications:read", "flashlight:control"],
+        )
+        assert len(initiation.pin) == 6
+        assert initiation.qr_uri.startswith("homeos://pair?")
+        assert "<svg" in initiation.qr_svg
+
+        # Wrong PIN must fail
+        with pytest.raises(PairingError):
+            await pairing.complete_pairing(
+                db=db,
+                pairing_session_id=initiation.session_id,
+                pin_or_token="000000" if initiation.pin != "000000" else "999999",
+                hardware_fingerprint="android-hw-pixel9-001",
+                name="Pixel 9 Pro",
+                category="smartphone",
+                manufacturer="Google",
+                model="Pixel 9 Pro",
+                os_name="Android",
+                os_version="15",
+            )
+
+        # Valid QR token completes enrollment and issues non-plaintext credentials
+        enrolled = await pairing.complete_pairing(
+            db=db,
+            pairing_session_id=initiation.session_id,
+            pin_or_token=initiation.qr_token,
+            hardware_fingerprint="android-hw-pixel9-001",
+            name="Pixel 9 Pro",
+            category="smartphone",
+            manufacturer="Google",
+            model="Pixel 9 Pro",
+            os_name="Android",
+            os_version="15",
+        )
+        assert enrolled.device.lifecycle_state == "authenticated"
+        assert len(enrolled.device_token) > 24
+        assert len(enrolled.hmac_secret) > 24
+
+        # Verify DB has NO plaintext token or HMAC secret
+        cred = enrolled.device.credential
+        assert cred.token_hash != enrolled.device_token
+        assert enrolled.hmac_secret not in cred.encrypted_hmac_secret
+        assert vault.decrypt(cred.encrypted_hmac_secret, aad=f"device:{enrolled.device.id}") == enrolled.hmac_secret
+
+        # Replay of single-use pairing session must fail
+        with pytest.raises(PairingError):
+            await pairing.complete_pairing(
+                db=db,
+                pairing_session_id=initiation.session_id,
+                pin_or_token=initiation.qr_token,
+                hardware_fingerprint="android-hw-clone",
+                name="Clone",
+                category="smartphone",
+            )
+
+        # Credential rotation increments version and invalidates old token
+        rotated = pairing.rotate_credentials(db=db, device_id=enrolled.device.id, actor_user_id="u-1")
+        assert rotated.key_version == 2
+        assert rotated.device_token != enrolled.device_token

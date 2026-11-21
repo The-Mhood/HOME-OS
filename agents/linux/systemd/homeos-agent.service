@@ -1,0 +1,14 @@
+[Unit]
+Description=HOME OS Native Linux Companion Agent
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/homeos-linux-agent run
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target
