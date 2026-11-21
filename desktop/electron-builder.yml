@@ -30,6 +30,20 @@ mac:
   hardenedRuntime: false
   gatekeeperAssess: false
   identity: null
+  extendInfo:
+    NSLocalNetworkUsageDescription: "HOME OS discovers and pairs with your authorized phones, TVs, speakers, and smart-home devices on your local Wi-Fi network."
+    NSBonjourServices:
+      - "_homeos._tcp"
+      - "_androidtvremote2._tcp"
+      - "_googlecast._tcp"
+      - "_airplay._tcp"
+      - "_raop._tcp"
+      - "_companion-link._tcp"
+      - "_hap._tcp"
+      - "_matter._tcp"
+      - "_home-assistant._tcp"
+      - "_sonos._tcp"
+      - "_smb._tcp"
 win:
   target:
     - nsis

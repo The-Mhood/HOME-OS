@@ -42,10 +42,62 @@ router = APIRouter()
 
 @router.get("/health")
 def health_check(runtime: HomeOsRuntime = Depends(get_runtime)):
+    from home_os.services.discovery import get_primary_lan_ipv4
+
     return {
         "status": "ok",
         "version": runtime.settings.app_version,
+        "api_revision": "1.2.0",
+        "bind_host": runtime.settings.bind_host,
+        "bind_port": runtime.settings.bind_port,
+        "lan_ip": get_primary_lan_ipv4(),
         "tls_fingerprint": runtime.tls_info.sha256_fingerprint,
+    }
+
+
+@router.get("/system/network-diagnostics")
+def network_diagnostics(
+    user: User = Depends(get_current_user),
+    runtime: HomeOsRuntime = Depends(get_runtime),
+):
+    import socket as _sock
+    import sys as _sys
+    from pathlib import Path as _Path
+    from home_os.services.discovery import get_primary_lan_ipv4, list_lan_interfaces
+
+    lan_ip = get_primary_lan_ipv4()
+    ifaces = list_lan_interfaces()
+    port = runtime.settings.bind_port
+
+    lan_socket_reachable = False
+    if lan_ip != "127.0.0.1":
+        try:
+            with _sock.create_connection((lan_ip, port), timeout=0.6):
+                lan_socket_reachable = True
+        except OSError:
+            lan_socket_reachable = False
+
+    macos_firewall_enabled = False
+    if _sys.platform == "darwin" and _Path("/usr/libexec/ApplicationFirewall/socketfilterfw").exists():
+        try:
+            fw = subprocess.run(
+                ["/usr/libexec/ApplicationFirewall/socketfilterfw", "--getglobalstate"],
+                capture_output=True,
+                text=True,
+                timeout=1.5,
+                check=False,
+            )
+            macos_firewall_enabled = "enabled" in (fw.stdout or "").lower()
+        except Exception:
+            pass
+
+    return {
+        "primary_lan_ip": lan_ip,
+        "lan_interfaces": ifaces,
+        "bind_host": runtime.settings.bind_host,
+        "bind_port": port,
+        "lan_socket_reachable": lan_socket_reachable,
+        "macos_firewall_enabled": macos_firewall_enabled,
     }
 
 

@@ -1,5 +1,5 @@
-2dceb97504ecacbca038967435939dc8fd612983c0ea1420e016228040d0bfec  home_os-1.0.0-py3-none-any.whl
-ef7080ab55501bf2a9100c3186c81378db683a97ec20cfb3668a82696d5e3a85  homeos_linux_agent-1.0.0-py3-none-any.whl
-4decdc41d8491051b848411774e0875ad103c6e80391b95f8643a343cae95106  home-os-desktop-bundle-1.0.0.tar.gz
-ee08facc815cc6b23d4187b965ba7dbafc2222f3f050b00bf19d874048d22265  home_os-1.0.0.tar.gz
-f0206c1e1a97ed821ebac423640eeb3ae47c02e940311a9862fba33130c0c5ab  homeos_linux_agent-1.0.0.tar.gz
+2b685f5732b00cb944eb232b68d7146c57f2cdb3b76de2b2b76cd3e2811864d6  home_os-1.0.0-py3-none-any.whl
+f9a82ef6234b9233dadc75aee1ea72a6bb3bc27f7013cb8adf9af7d86526c435  homeos_linux_agent-1.0.0-py3-none-any.whl
+96e50b3c74362c105c099958fda01c1f1bd6f409e9fea7a802e5787e92473499  home-os-desktop-bundle-1.0.0.tar.gz
+8bd7fcd58867a7715c1e148d1c22028a2ec54ea21882786b44c1a6e47073baf9  home_os-1.0.0.tar.gz
+4e7c6608c7a003a73672f2e23f4d9b12f5720a5206d2e8ced6172ffd3ec443e0  homeos_linux_agent-1.0.0.tar.gz

@@ -73,9 +73,21 @@ echo "[2/4] Building HOME OS Desktop Command Environment..."
     if command -v xattr >/dev/null 2>&1; then
       xattr -cr release-builds/mac*/"HOME OS.app" 2>/dev/null || true
     fi
+    if command -v codesign >/dev/null 2>&1; then
+      codesign --force --deep --sign - release-builds/mac*/"HOME OS.app" 2>/dev/null || true
+    fi
     echo "macOS app packaged in: ${ROOT_DIR}/desktop/release-builds/"
   fi
 )
+
+# Stop any stale old homeos process still holding TCP port 8420
+if command -v lsof >/dev/null 2>&1; then
+  STALE_PIDS="$(/usr/sbin/lsof -ti tcp:8420 2>/dev/null || lsof -ti tcp:8420 2>/dev/null || true)"
+  if [[ -n "${STALE_PIDS}" ]]; then
+    echo "Stopping previous HOME OS server on port 8420 (${STALE_PIDS})..."
+    kill -TERM ${STALE_PIDS} 2>/dev/null || true
+  fi
+fi
 
 # 4. Compile Swift Native macOS Agent (Keychain + TCC + CoreAudio + File Jail)
 echo ""

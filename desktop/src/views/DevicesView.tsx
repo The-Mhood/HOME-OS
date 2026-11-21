@@ -22,6 +22,15 @@ interface PairingSessionResponse {
   expires_at: string;
 }
 
+interface NetDiagnostics {
+  primary_lan_ip: string;
+  lan_interfaces: Array<{ interface: string; label: string; ip: string; prefix: number }>;
+  bind_host: string;
+  bind_port: number;
+  lan_socket_reachable: boolean;
+  macos_firewall_enabled: boolean;
+}
+
 const ALL_SCOPES = [
   'telemetry:read',
   'notifications:read',
@@ -59,6 +68,8 @@ export const DevicesView: React.FC<Props> = ({
     'files:browse',
   ]);
   const [pairingSession, setPairingSession] = useState<PairingSessionResponse | null>(null);
+  const [netDiag, setNetDiag] = useState<NetDiagnostics | null>(null);
+  const [overrideHostIp, setOverrideHostIp] = useState<string>('');
 
   // Direct Enrollment Completion helper (for Google TV / local desktop PIN confirmation)
   const [completeName, setCompleteName] = useState('');
@@ -85,14 +96,28 @@ export const DevicesView: React.FC<Props> = ({
     prevRegCount.current = registered.length;
   }, [registered.length, showPairModal, pairingSession, onNotify]);
 
-  const startPairing = async (device?: Device) => {
+  useEffect(() => {
+    if (!showPairModal) return;
+    apiRequest<NetDiagnostics>('/system/network-diagnostics')
+      .then((d) => {
+        setNetDiag(d);
+        if (!overrideHostIp && d.primary_lan_ip) {
+          setOverrideHostIp(d.primary_lan_ip);
+        }
+      })
+      .catch(() => {});
+  }, [showPairModal, overrideHostIp]);
+
+  const startPairing = async (device?: Device, customHost?: string) => {
     const adapter = device && device.adapter_type !== 'generic_network' ? device.adapter_type : pairAdapter;
+    const hubHost = customHost || overrideHostIp || undefined;
     try {
       const res = await apiRequest<PairingSessionResponse>('/pairing/initiate', {
         method: 'POST',
         body: JSON.stringify({
           adapter_type: adapter,
           device_id: device?.id,
+          hub_host: hubHost,
           requested_permissions: selectedScopes,
         }),
       });
@@ -514,6 +539,41 @@ export const DevicesView: React.FC<Props> = ({
                     <Copy size={13} /> Copy
                   </button>
                 </div>
+
+                {netDiag && !netDiag.lan_socket_reachable && netDiag.primary_lan_ip !== '127.0.0.1' && (
+                  <div style={{ fontSize: '12px', color: '#fca5a5', background: 'rgba(239, 68, 68, 0.14)', border: '1px solid rgba(239,68,68,0.35)', padding: '9px 11px', borderRadius: '8px' }}>
+                    <strong>Why your phone link isn&apos;t loading:</strong> The running backend is bound to <span className="mono">{netDiag.bind_host}:{netDiag.bind_port}</span> (loopback only). Stop the old server and start with <span className="mono">homeos serve --host 0.0.0.0 --port 8420</span> (or reopen the updated <span className="mono">HOME OS.app</span>).
+                  </div>
+                )}
+
+                {netDiag && netDiag.lan_socket_reachable && (
+                  <div style={{ fontSize: '12px', color: '#6ee7b7', background: 'rgba(16, 185, 129, 0.12)', padding: '8px 10px', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                    <span>✓ Hub listening on Wi-Fi (<span className="mono">{pairingSession.lan_host}:{pairingSession.lan_port}</span>)</span>
+                    {netDiag.lan_interfaces.length > 1 && (
+                      <select
+                        className="select"
+                        style={{ padding: '4px 8px', fontSize: '11.5px' }}
+                        value={pairingSession.lan_host || overrideHostIp}
+                        onChange={(e) => {
+                          setOverrideHostIp(e.target.value);
+                          void startPairing(undefined, e.target.value);
+                        }}
+                      >
+                        {netDiag.lan_interfaces.map((iface) => (
+                          <option key={iface.ip} value={iface.ip}>
+                            {iface.label} ({iface.interface}): {iface.ip}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                )}
+
+                {netDiag && netDiag.macos_firewall_enabled && (
+                  <div style={{ fontSize: '11.5px', color: '#fcd34d', background: 'rgba(245, 158, 11, 0.12)', padding: '8px 10px', borderRadius: '8px' }}>
+                    macOS Firewall is enabled: if your phone times out opening the QR link, allow incoming connections for Python / HOME OS in <strong>System Settings → Network → Firewall → Options</strong> (and ensure your phone isn&apos;t on a Guest Wi-Fi with AP Isolation).
+                  </div>
+                )}
 
                 {pairingSession.lan_host === '127.0.0.1' && (
                   <div style={{ fontSize: '12px', color: '#fcd34d', background: 'rgba(245, 158, 11, 0.12)', padding: '8px 10px', borderRadius: '8px' }}>

@@ -57,8 +57,11 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if report.valid else 2
 
     if args.cmd == "serve":
+        import os
         host = args.host or settings.bind_host
         port = args.port or settings.bind_port
+        os.environ["HOMEOS_BIND_HOST"] = host
+        os.environ["HOMEOS_BIND_PORT"] = str(port)
         ssl_kwargs = {}
         if args.tls:
             from home_os.security.crypto import ensure_local_tls_certificate

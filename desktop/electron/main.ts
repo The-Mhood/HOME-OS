@@ -1,5 +1,5 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
-import { spawn, ChildProcess } from 'node:child_process';
+import { execFileSync, spawn, ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
@@ -17,7 +17,13 @@ process.on('unhandledRejection', (reason) => {
   console.error('[HOME OS Electron] Unhandled rejection:', reason);
 });
 
-function checkBackendHealth(port: string): Promise<boolean> {
+interface HealthInfo {
+  ok: boolean;
+  bindHost?: string;
+  apiRevision?: string;
+}
+
+function inspectBackendHealth(port: string): Promise<HealthInfo> {
   return new Promise((resolve) => {
     const req = http.get(
       {
@@ -27,16 +33,59 @@ function checkBackendHealth(port: string): Promise<boolean> {
         timeout: 1200,
       },
       (res) => {
-        res.resume();
-        resolve(res.statusCode === 200);
+        let raw = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk) => {
+          raw += chunk;
+        });
+        res.on('end', () => {
+          if (res.statusCode !== 200) {
+            resolve({ ok: false });
+            return;
+          }
+          try {
+            const parsed = JSON.parse(raw);
+            resolve({
+              ok: true,
+              bindHost: parsed.bind_host,
+              apiRevision: parsed.api_revision,
+            });
+          } catch {
+            resolve({ ok: true });
+          }
+        });
       }
     );
-    req.on('error', () => resolve(false));
+    req.on('error', () => resolve({ ok: false }));
     req.on('timeout', () => {
       req.destroy();
-      resolve(false);
+      resolve({ ok: false });
     });
   });
+}
+
+function stopStalePortListener(port: string): void {
+  if (process.platform === 'win32') return;
+  for (const lsofBin of ['/usr/sbin/lsof', '/usr/bin/lsof', 'lsof']) {
+    try {
+      const out = execFileSync(lsofBin, ['-ti', `tcp:${port}`], { encoding: 'utf8', timeout: 1500 }).trim();
+      if (out) {
+        for (const pidStr of out.split(/\s+/)) {
+          const pid = Number(pidStr);
+          if (pid > 1 && pid !== process.pid) {
+            try {
+              process.kill(pid, 'SIGTERM');
+            } catch {
+              // ignore
+            }
+          }
+        }
+        return;
+      }
+    } catch {
+      continue;
+    }
+  }
 }
 
 function resolveHomeOsBinary(): string | null {
@@ -83,10 +132,18 @@ function resolveBundledUiDir(): string | undefined {
 }
 
 async function ensureLocalBackendRunning(port: string): Promise<boolean> {
-  if (await checkBackendHealth(port)) {
-    return true;
-  }
-  if (process.env.HOMEOS_EXTERNAL_BACKEND === '1') {
+  const initial = await inspectBackendHealth(port);
+  if (initial.ok) {
+    if (process.env.HOMEOS_EXTERNAL_BACKEND === '1') {
+      return true;
+    }
+    // If an older loopback-only instance is holding port 8420, replace it so Wi-Fi QR pairing works
+    if (initial.bindHost === '0.0.0.0' && initial.apiRevision === '1.2.0') {
+      return true;
+    }
+    stopStalePortListener(port);
+    await new Promise((r) => setTimeout(r, 500));
+  } else if (process.env.HOMEOS_EXTERNAL_BACKEND === '1') {
     return false;
   }
 
@@ -135,7 +192,8 @@ async function ensureLocalBackendRunning(port: string): Promise<boolean> {
   }
 
   for (let attempt = 0; attempt < 45; attempt++) {
-    if (await checkBackendHealth(port)) {
+    const h = await inspectBackendHealth(port);
+    if (h.ok) {
       return true;
     }
     await new Promise((r) => setTimeout(r, 300));
