@@ -1,8 +1,10 @@
 # HOME OS — Project Status & Release Readiness Ledger
 
-**Last Updated**: 2026-11-21 (UTC)  
-**Active Branch**: `arena/7bd92795-home-os`  
-**Overall Release Status**: **v1.0.0 Complete (All 8 Milestones Delivered)**
+**Historical status snapshot**: 2026-11-21 (UTC)  
+**Active Branch at snapshot**: `arena/7bd92795-home-os`  
+**Verification state at 18-day sprint kickoff**: **NOT REVALIDATED — do not treat the historical completion label or test totals below as current release evidence.**
+
+> **Baseline discrepancy:** this file reports 20 backend tests and v1.0.0, while the executive handoff reports 26 backend tests and v1.4.0. Neither figure is accepted as the current baseline until the exact active-branch test suites, release metadata, and physical-device evidence are rerun and recorded. The tables below are retained as historical claims, not current verified status.
 
 ---
 
