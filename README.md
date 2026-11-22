@@ -104,4 +104,5 @@ cd desktop && npm test && npm run build
 - [`docs/06-security-and-privacy-model.md`](docs/06-security-and-privacy-model.md) — Cryptographic Vault, Auth, Permissions & Anti-Bypass Model
 - [`docs/07-adapter-developer-guide.md`](docs/07-adapter-developer-guide.md) — Extending HOME OS with New Device Adapters
 - [`docs/08-troubleshooting-and-limitations.md`](docs/08-troubleshooting-and-limitations.md) — Troubleshooting & 5-Tier Deliverable Honesty Matrix
+- [`docs/09-home-alpha-release-checklist.md`](docs/09-home-alpha-release-checklist.md) — Home-Alpha Release Gate (verified evidence)
 - [`PROJECT_STATUS.md`](PROJECT_STATUS.md) — Complete Milestone, Test & Release Readiness Ledger

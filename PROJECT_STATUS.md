@@ -3,7 +3,7 @@
 **Revalidated baseline**: 2026-11-22 (UTC) — active branch `arena/7bd92795-home-os`  
 **Verification state**: **REVALIDATED — the rows below were reproduced in this environment on 2026-11-22**, not historical claims.
 
-> **Baseline reconciliation:** the 2026-11-21 snapshot recorded 20 backend tests (status file) vs. 26 (handoff) — neither was accepted as current until rerun. On the active branch (Python 3.11.2, Debian 12 x86_64), the currently-shipped suites were reproduced: **26/26 backend + native Linux agent tests pass** (unit, integration, live dual-agent E2E, security, concurrency performance) and the desktop suite passes **2/2** with a clean production build. The two canonical historical failures were resolved on 2026-11-22 (see §2). Release artifacts under `releases/` remain **historical** (built 2026-11-21) and are not claimed as re-verified outputs of this branch.
+> **Baseline reconciliation:** the 2026-11-21 snapshot recorded 20 backend tests (status file) vs. 26 (handoff) — neither was accepted as current until rerun. On the active branch (Python 3.11.2, Debian 12 x86_64), the currently-shipped suites were reproduced: **27/27 backend + native Linux agent tests pass** (unit, integration, live dual-agent E2E, security, concurrency performance) and the desktop suite passes **2/2** with a clean production build. The two canonical historical failures were resolved on 2026-11-22 (see §2). `releases/` artifacts were rebuilt from the current branch on 2026-11-22 and checksummed (see §0, and `docs/09-home-alpha-release-checklist.md`).
 
 ---
 
@@ -16,6 +16,8 @@
 | Desktop build | `cd desktop && npm run build` | **Clean** (tsc -b + vite build + electron tsc) | 292.51 kB bundle, gzip 79.71 kB. |
 | Alembic migration | `export HOMEOS_DATABASE_URL=sqlite:///<tmp>/ci.db && .venv/bin/alembic upgrade head` / `downgrade base` / `upgrade head` | **Round-trip OK** | Newly fixed: env.py now honors `HOMEOS_DATABASE_URL` (app-consistent) and creates missing parent dirs; CI uses the sync URL. |
 | Core CLI / hub smoke | `homeos migrate` + `homeos serve` → `GET /api/v1/health` | **HTTP 200** | `{"status":"ok","version":"1.0.0",...}`. |
+| Release artifacts | `bash scripts/build-release.sh` | **5 artifacts, checksums verified** | wheels carry the 2026-11-22 fixes; desktop bundle rebuilt with `npm ci && npm run build`; manifest regenerated 2026-11-22. |
+| Clean install (artifacts) | `bash scripts/install-local.sh --use-release-artifacts` + `homeos serve` | **migrate → serve → health 200 → verify-audit valid** | Repeat run = idempotent upgrade path. See `docs/09-home-alpha-release-checklist.md`. |
 
 **Known version-label inconsistency (documented, not a blocker):** package/releases/`pyproject.toml` and the health `version` field report `1.0.0`, while the handoff docs and the hardcoded health `api_revision` field report `1.4.0`. `api_revision` is load-bearing for the Electron stale-instance migration guard (`desktop/electron/main.ts`); do not remove it without replacing the guard. Do **not** bump version numbers without an explicit release decision.
 
