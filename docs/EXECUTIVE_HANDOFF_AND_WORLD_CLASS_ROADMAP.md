@@ -3,10 +3,10 @@
 | Document Metadata | Details |
 | :--- | :--- |
 | **System Name** | **HOME OS** — Sovereign Local-First Cross-Device & Ambient Home Operating System |
-| **Current Baseline** | `v1.4.0` (`api_revision: "1.4.0"`, Core Engine `1.0.0`, Desktop Command Environment `1.0.0`) |
-| **Repository & Branch** | `The-Mhood/HOME-OS` (`arena/7bd92795-home-os`, latest commit `6c7cd0b`) |
+| **Reported Baseline** | Handoff claims `v1.4.0`; `PROJECT_STATUS.md` reports `v1.0.0`. Current version is **unverified pending tag/manifest audit**. |
+| **Repository & Branch** | `The-Mhood/HOME-OS` (`arena/7bd92795-home-os`). Branch head has advanced since the original handoff; inspect Git before relying on historical SHAs. |
 | **Codebase Footprint** | ~25,135+ lines of production code across 100+ source files (Python, TypeScript/React/Electron, Swift, Kotlin, C#/.NET 8), 17 relational tables, 8 concrete device protocol adapters |
-| **Verification Status** | **26 / 26** backend unit, security, integration & concurrency tests passing; **2 / 2** full-app 9-view UI tests passing; deterministic SHA-256 release bundle verified |
+| **Historical Verification Claim** | This handoff reports **26 / 26** backend tests and **2 / 2** UI suites; `PROJECT_STATUS.md` reports **20** backend tests. Neither total has been rerun for this sprint kickoff. Treat all counts and release-bundle claims as **unverified until reproduced**. |
 | **Target Audience** | VP of Engineering, Principal/Distinguished Architects, Platform Security Review Board, Product Leadership, M&A Technical Due Diligence |
 | **Date** | November 21, 2026 |
 
@@ -526,4 +526,4 @@ For a Big-Tech acquirer or platform sponsor, HOME OS unlocks four high-margin st
 
 ---
 
-*Prepared for executive & principal engineering review — verified against repository `The-Mhood/HOME-OS` (`v1.4.0`, commit `6c7cd0b`).*
+*Prepared as a historical engineering handoff. Version, test-count, release-artifact, and physical-device claims must be revalidated against the current branch before release decisions.*
