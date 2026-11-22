@@ -1,12 +1,23 @@
 # HOME OS — Project Status & Release Readiness Ledger
 
-**Historical status snapshot**: 2026-11-21 (UTC)  
-**Active Branch at snapshot**: `arena/7bd92795-home-os`  
-**Verification state at 18-day sprint kickoff**: **NOT REVALIDATED — do not treat the historical completion label or test totals below as current release evidence.**
+**Revalidated baseline**: 2026-11-22 (UTC) — active branch `arena/7bd92795-home-os`  
+**Verification state**: **REVALIDATED — the rows below were reproduced in this environment on 2026-11-22**, not historical claims.
 
-> **Baseline discrepancy:** this file reports 20 backend tests and v1.0.0, while the executive handoff reports 26 backend tests and v1.4.0. Neither figure is accepted as the current baseline until the exact active-branch test suites, release metadata, and physical-device evidence are rerun and recorded. The tables below are retained as historical claims, not current verified status.
+> **Baseline reconciliation:** the 2026-11-21 snapshot recorded 20 backend tests (status file) vs. 26 (handoff) — neither was accepted as current until rerun. On the active branch (Python 3.11.2, Debian 12 x86_64), the currently-shipped suites were reproduced: **26/26 backend + native Linux agent tests pass** (unit, integration, live dual-agent E2E, security, concurrency performance) and the desktop suite passes **2/2** with a clean production build. The two canonical historical failures were resolved on 2026-11-22 (see §2). Release artifacts under `releases/` remain **historical** (built 2026-11-21) and are not claimed as re-verified outputs of this branch.
 
 ---
+
+## 0. Revalidated 2026-11-22 Baseline (verified in this environment)
+
+| Suite | Command | Result | Notes |
+|---|---|---|---|
+| Backend + Security + Live Linux Agent + Load | `.venv/bin/pytest -v --cov=home_os --cov=homeos_linux_agent` | **26 passed, 0 failed** | On Debian 12 x86_64, Python 3.11.2. Includes the live dual-Linux-agent E2E (pairing → telemetry → D2D file relay → revocation) which now reports honest unavailable telemetry off-Linux. |
+| Desktop UI suite | `cd desktop && npm test` | **2/2 passed** | Full 9-view interaction smoke test. |
+| Desktop build | `cd desktop && npm run build` | **Clean** (tsc -b + vite build + electron tsc) | 292.51 kB bundle, gzip 79.71 kB. |
+| Alembic migration | `export HOMEOS_DATABASE_URL=sqlite:///<tmp>/ci.db && .venv/bin/alembic upgrade head` / `downgrade base` / `upgrade head` | **Round-trip OK** | Newly fixed: env.py now honors `HOMEOS_DATABASE_URL` (app-consistent) and creates missing parent dirs; CI uses the sync URL. |
+| Core CLI / hub smoke | `homeos migrate` + `homeos serve` → `GET /api/v1/health` | **HTTP 200** | `{"status":"ok","version":"1.0.0",...}`. |
+
+**Known version-label inconsistency (documented, not a blocker):** package/releases/`pyproject.toml` and the health `version` field report `1.0.0`, while the handoff docs and the hardcoded health `api_revision` field report `1.4.0`. `api_revision` is load-bearing for the Electron stale-instance migration guard (`desktop/electron/main.ts`); do not remove it without replacing the guard. Do **not** bump version numbers without an explicit release decision.
 
 ## 1. Milestone Completion Tracker
 
@@ -25,11 +36,22 @@
 
 ## 2. Automated Test & Performance Evidence
 
+**Re-run on this branch 2026-11-22:** 26/26 backend/agent tests passed (see §0), 2/2 desktop tests, clean production bundle. The two historical failures below were resolved on 2026-11-22 — details in §2.1. The table below is retained as the 2026-11-21 historical record for reference only; treat §0 as the current evidence.
+
+### 2.1 Resolved canonical failures (2026-11-22)
+
+| # | Issue | Root cause | Resolution |
+|---|---|---|---|
+| A | `tests/integration/test_live_linux_agent_e2e.py` — `health_details.memory_total_mb > 100` failed on macOS (`0`) | Linux-specific `/proc` telemetry asserted on a non-Linux host | Test explicitly `skipif(platform.system() != "Linux")`; agent's `collect_telemetry()` now reports memory/health as unavailable (`None`) when `/proc/meminfo` is unreadable instead of fabricating `0`; hub schema/REST/WS handlers accept `null` health score; desktop renders `N/A` for unavailable values. |
+| B | `tests/unit/test_adapters_tv_and_ha.py::test_google_tv_remote_v2_tls_protocol_execution` — app-launch frame missed by mock server (stale ACK race) | `_ensure_connection()` sent `RemoteConfigure` but never consumed the server's ACK; the subsequent navigation command read that stale ACK, so the app-launch command read the navigation ACK and the link frame was lost | `_ensure_connection()` now reads and discards the Configure ACK before storing the connection. Each command frame is then acknowledged independently. 20/20 repeat runs pass. |
+
+### 2.2 Historical record (2026-11-21; do NOT treat as current evidence)
+
 | Suite | Command | Result | Highlights |
 |---|---|---|---|
-| **Backend + Native Linux Agent + Security + Load** | `.venv/bin/pytest -v --cov=home_os --cov=homeos_linux_agent` | **20 passed in 7.80s** (75% line coverage across 3,806 statements) | Covers Argon2id, AES-256-GCM tamper detection, ECDSA TLS fingerprint, HMAC replay rejection, XXE UPnP protection, path traversal jailing, Alembic upgrade/downgrade, Google TV TLS v2 framing, Home Assistant post-command state verification, Matter JSON-RPC WS server, live dual-Linux-agent E2E file relay, emergency lockdown, and **25 concurrent simulated devices (`<50ms` avg command latency)** |
-| **Desktop UI (All 9 Views + TypeScript + Production Bundle)** | `cd desktop && npm test && npm run build` | **2 test suites / all 9 views verified**, zero TypeScript errors | Verifies First-Run Vault Setup, Command Centre metrics, unpaired vs paired device badges, honest unavailable capability disclosures, WhatsApp notification mirroring transparency, file browser, automation approval queue, SHA-256 audit chain UI verification, and settings |
-| **Release Artifacts & SHA-256 Manifest** | `bash scripts/build-release.sh` | **5 verified artifacts (`264 KB` total)** | `home_os-1.0.0-py3-none-any.whl`, `home_os-1.0.0.tar.gz`, `homeos_linux_agent-1.0.0-py3-none-any.whl`, `homeos_linux_agent-1.0.0.tar.gz`, `home-os-desktop-bundle-1.0.0.tar.gz`, `SHA256SUMS.txt`, `manifest.json` |
+| **Backend + Native Linux Agent + Security + Load** | `.venv/bin/pytest -v --cov=home_os --cov=homeos_linux_agent` | 20 passed in 7.80s (75% line coverage across 3,806 statements) | Argon2id, AES-256-GCM tamper detection, ECDSA TLS fingerprint, HMAC replay rejection, XXE UPnP protection, path traversal jailing, Alembic upgrade/downgrade, Google TV TLS v2 framing, Home Assistant post-command state verification, Matter JSON-RPC WS server, live dual-Linux-agent E2E file relay, emergency lockdown, **25 concurrent simulated devices (<50ms avg command latency)** |
+| **Desktop UI (All 9 Views + TypeScript + Production Bundle)** | `cd desktop && npm test && npm run build` | 2 test suites / all 9 views verified, zero TypeScript errors | First-Run Vault Setup, Command Centre metrics, unpaired vs paired device badges, honest unavailable capability disclosures, WhatsApp notification mirroring transparency, file browser, automation approval queue, SHA-256 audit chain UI verification, and settings |
+| **Release Artifacts & SHA-256 Manifest** | `bash scripts/build-release.sh` | 5 verified artifacts (~264 KB total) | `home_os-1.0.0-py3-none-any.whl`, `home_os-1.0.0.tar.gz`, `homeos_linux_agent-1.0.0-py3-none-any.whl`, `homeos_linux_agent-1.0.0.tar.gz`, `home-os-desktop-bundle-1.0.0.tar.gz`, `SHA256SUMS.txt`, `manifest.json` |
 
 ---
 

@@ -97,8 +97,8 @@ cd desktop && npm test && npm run build
 ## Documentation Index
 
 - [`docs/01-engineering-assessment.md`](docs/01-engineering-assessment.md) — Repository & Environment Assessment
-- [`docs/02-platform-capabilities.md`](docs/02-platform-capabilities.md) — OS Permission & Sandbox Feasibility Matrix
-- [`docs/03-architecture.md`](docs/03-architecture.md) — Modular Monolith, Data Model, Security & Adapter Contract
+- [`docs/02-platform-research.md`](docs/02-platform-research.md) — OS Permission & Sandbox Feasibility Matrix
+- [`docs/03-requirements-and-architecture.md`](docs/03-requirements-and-architecture.md) — Modular Monolith, Data Model, Security & Adapter Contract
 - [`docs/04-risk-register.md`](docs/04-risk-register.md) — Security, Privacy & Platform Risk Register
 - [`docs/05-installation-and-setup.md`](docs/05-installation-and-setup.md) — Operator Setup & Multi-Platform Enrollment Guide
 - [`docs/06-security-and-privacy-model.md`](docs/06-security-and-privacy-model.md) — Cryptographic Vault, Auth, Permissions & Anti-Bypass Model

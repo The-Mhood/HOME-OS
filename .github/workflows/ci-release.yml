@@ -31,7 +31,7 @@ jobs:
         run: |
           export HOMEOS_DATA_DIR="${RUNNER_TEMP}/homeos-ci"
           mkdir -p "$HOMEOS_DATA_DIR"
-          export HOMEOS_DATABASE_URL="sqlite+aiosqlite:///${HOMEOS_DATA_DIR}/ci.db"
+          export HOMEOS_DATABASE_URL="sqlite:///${HOMEOS_DATA_DIR}/ci.db"
           alembic upgrade head
           alembic downgrade base
           alembic upgrade head
