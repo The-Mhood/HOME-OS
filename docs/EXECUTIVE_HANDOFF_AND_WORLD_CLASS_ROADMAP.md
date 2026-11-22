@@ -41,7 +41,7 @@
    - 4.2 [Hardware Root of Trust (Secure Enclave / TPM 2.0 / StrongBox) & Remote Attestation](#42-hardware-root-of-trust-secure-enclave--tpm-20--strongbox--remote-attestation)
    - 4.3 [Formal Authorization (`Cedar`), Distributed Observability & Hardware-in-the-Loop (HIL) Chaos Lab](#43-formal-authorization-cedar-distributed-observability--hardware-in-the-loop-hil-chaos-lab)
 5. [Part IV — Multi-Horizon Execution Roadmap, Org Topology, SLAs & Commercial Strategy](#5-part-iv--multi-horizon-execution-roadmap-org-topology-slas--commercial-strategy)
-   - 5.1 [Phased 18-Month Engineering Roadmap (Horizons 1, 2, and 3)](#51-phased-18-month-engineering-roadmap-horizons-1-2-and-3)
+   - 5.1 [18-Day Build Sprint & Release Gates](#51-18-day-build-sprint--release-gates)
    - 5.2 [Big-Tech Engineering Organization Topology & Staffing Plan](#52-big-tech-engineering-organization-topology--staffing-plan)
    - 5.3 [North-Star Engineering SLAs & Product KPIs](#53-north-star-engineering-slas--product-kpis)
    - 5.4 [Strategic Ecosystem Value & Commercialization Models](#54-strategic-ecosystem-value--commercialization-models)
@@ -467,13 +467,24 @@ Migrate latency-critical, memory-sensitive, always-on background daemon componen
 
 ## 5. Part IV — Multi-Horizon Execution Roadmap, Org Topology, SLAs & Commercial Strategy
 
-### 5.1 Phased 18-Month Engineering Roadmap (Horizons 1, 2, and 3)
+### 5.1 18-Day Build Sprint & Release Gates
 
-| Horizon | Timeframe | Core Deliverables & Exit Criteria |
+**Deadline:** 18 consecutive execution days from sprint start. The objective is a reliable, installable **home alpha on the owner's actual devices**—not a claim that every future platform feature is complete. Existing code is the starting point; no rewrite is authorized without measured evidence.
+
+| Days | Workstream | Required deliverables and exit criteria |
 | :--- | :--- | :--- |
-| **Horizon 1: Consumer Onboarding & Media/Comms Polish** | **Months 1–3 (Days 0–90)** | • Ship signed **Android Companion APK v2** (`CompanionDeviceManager` + `NotificationListener` + `SmsManager` + `TelecomManager` + self-pairing Wireless ADB helper).<br>• Implement **Cross-Platform iOS BLE `ANCS` + `AMS` + `HOGP` + `HFP` Bridge** so iPhone notifications, calls, media, and screen wake work natively on macOS, Windows, AND Linux without Xcode.<br>• Add **OTP Auto-Fill**, **Unified Contact Resolution**, and **Apple Developer ID Notarization + Windows EV Code Signing** CI pipelines. |
-| **Horizon 2: Rust Data Plane, 60fps KVM & Multi-Hub Mesh** | **Months 4–9** | • Introduce **`homeos-core` Rust daemon** + migrate desktop shell to **Tauri v2** (`<15 MB` installer).<br>• Launch **60/120fps WebRTC Hardware Screen/App Mirroring**, **Universal Edge-Warp Mouse/Keyboard KVM**, and **Cross-OS Continuity Webcam/Mic**.<br>• Ship **QUIC + Wi-Fi Direct Multi-Gigabit File Mesh** with native Finder/Explorer virtual drive mounts (`FileProvider` / `CfAPI` / `FUSE`).<br>• Deliver **Active-Active Raft Multi-Hub Failover** + **Zero-Knowledge WireGuard Remote 5G Access**. |
-| **Horizon 3: Sovereign AI Cluster, Spatial UWB & WASM Ecosystem** | **Months 10–18** | • Launch **Household NPU/GPU Local AI Pool**, **Natural-Language-to-DAG Automation Compiler**, Cross-Device Semantic Search (`Cmd+Shift+Space`), and VLM Supervised Screen Agent.<br>• Ship **UWB / BLE 6.0 Channel Sounding Spatial Graph** ("Follow-Me" audio/calls/lighting), **Local WebRTC NVR + HEMS Solar/EV Optimizer**, and **`visionOS` / `Android XR` Spatial Console**.<br>• Open the **Signed `WASI` WebAssembly Adapter SDK & Marketplace** to OEMs and third-party developers. |
+| **1–3** | **Truth audit & stabilization** | Reconcile README, project status, handoff, tests, and actual source. Run the existing backend and desktop suites in the real development environment. Fix release-blocking defects; classify every capability as implemented, automated-test verified, physical-device verified, experimental, or unavailable. Freeze API, adapter, identity, and permission contracts. |
+| **4–6** | **LAN discovery & durable inventory** | Discover reachable LAN devices using supported mDNS/DNS-SD, SSDP/UPnP, ARP/neighbour and explicit integrations. Deduplicate identities, retain last-seen and confidence, handle IP changes/restarts, and keep discovery separate from authorization. Demonstrate discovery on the owner's network. |
+| **7–10** | **First real device controls** | Prioritize one end-to-end vertical slice each for Android (after explicit one-time pairing), Google/Android TV (on-screen pairing), desktop agent, and Home Assistant where available. Implement command dispatch, permission checks, reconnect, error reporting, and post-action verification. No simulated success. |
+| **11–13** | **iOS and cross-device workflows** | Deliver only supported iOS companion capabilities and clearly disclose platform limits. Validate Android notification mirroring/reply where granted, media controls, and scoped file transfer. Do not promise private app databases, unrestricted iPhone control, or universal call/message access. |
+| **14–16** | **Command centre, security & hardware QA** | Integrate real device state into the desktop UI; test revocation, pairing expiry, network changes, offline devices, malformed discovery data, audit integrity, and failure recovery. Run tests on physical devices and record evidence. |
+| **17–18** | **Home-alpha release** | Fix P0/P1 defects, produce reproducible local installers, document setup/permissions/known limitations, verify clean install and upgrade, and publish a release checklist with evidence. Ship only features that pass their stated gates. |
+
+**Daily operating rules:** one lead owns integration and the release branch; specialists work in isolated, non-overlapping areas; merge only after tests pass; preserve the current branch and existing user work; no destructive resets; no placeholder controls or fabricated telemetry.
+
+**18-day definition of done:** the hub starts locally; devices are discovered and deduplicated; previously authorized devices reconnect where their protocol supports it; at least the available real target devices complete verified control workflows; permission revocation works; the UI reports honest states; tests and physical-device evidence are attached; and installation instructions work from a clean environment.
+
+**Explicitly out of scope for this sprint unless a working vertical slice is already present:** Rust/Tauri rewrite, 100M-user re-architecture, multi-hub consensus, universal iOS Bluetooth control, 60/120fps KVM, UWB spatial computing, household AI cluster, and public plugin marketplace. These remain future research directions, not 18-day commitments.
 
 ---
 
