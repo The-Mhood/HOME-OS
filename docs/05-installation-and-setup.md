@@ -6,7 +6,7 @@
 ```bash
 bash scripts/install-local.sh
 ```
-This installs `homeos` (Core Engine CLI) and `homeos-linux-agent` (Native Linux Companion Daemon) into `~/.local/share/home-os/venv` and links binaries into `~/.local/bin/`.
+This installs `homeos` (Core Engine CLI) and `homeos-linux-agent` (Native Linux Companion Daemon) from the **current source tree** into `~/.local/share/home-os/venv` and links binaries into `~/.local/bin/`. To instead verify the committed `releases/` artifacts (historical builds, not re-verified), pass `--use-release-artifacts`.
 
 ### Starting the Core Engine
 ```bash

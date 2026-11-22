@@ -1,19 +1,34 @@
 #!/usr/bin/env bash
+# Installs HOME OS from the CURRENT source tree.
+#
+# Historically this script silently installed stale wheels from releases/ (which
+# were built once and do not reflect the active branch). The default path now
+# always builds from source. If you explicitly want the committed release
+# artifacts for downstream verification, pass --use-release-artifacts.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 INSTALL_VENV="${HOME}/.local/share/home-os/venv"
 
-echo "Installing HOME OS v1.0.0 into ${INSTALL_VENV}..."
+USE_RELEASE_ARTIFACTS=0
+for arg in "$@"; do
+  if [[ "${arg}" == "--use-release-artifacts" ]]; then
+    USE_RELEASE_ARTIFACTS=1
+  fi
+done
+
+echo "Installing HOME OS (source) into ${INSTALL_VENV}..."
 mkdir -p "$(dirname "${INSTALL_VENV}")"
 python3 -m venv "${INSTALL_VENV}"
 "${INSTALL_VENV}/bin/pip" install --upgrade pip
 
-if compgen -G "${ROOT_DIR}/releases/home_os-*.whl" > /dev/null; then
+if [[ "${USE_RELEASE_ARTIFACTS}" == "1" ]] && compgen -G "${ROOT_DIR}/releases/home_os-*.whl" > /dev/null; then
+  echo "Installing committed release artifacts (verification mode)..."
   "${INSTALL_VENV}/bin/pip" install --force-reinstall \
     "${ROOT_DIR}"/releases/home_os-*.whl \
     "${ROOT_DIR}"/releases/homeos_linux_agent-*.whl
 else
+  echo "Building and installing from source tree..."
   "${INSTALL_VENV}/bin/pip" install "${ROOT_DIR}" "${ROOT_DIR}/agents/linux"
 fi
 
