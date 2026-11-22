@@ -79,7 +79,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-14]
+        os: [ubuntu-latest, windows-latest, macos-15]
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -126,7 +126,7 @@ jobs:
 
   apple-native-targets:
     name: macOS Native Agent & iOS Companion (Swift 5.9)
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
       - name: Build macOS Native Agent Release Binary
