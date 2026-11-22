@@ -1,18 +1,23 @@
 :root {
-  --bg-canvas: #080a0f;
-  --bg-sidebar: #0c1017;
-  --bg-surface: #111621;
-  --bg-elevated: #171e2c;
-  --bg-hover: #1d2638;
-  --border-subtle: rgba(148, 163, 184, 0.12);
-  --border-strong: rgba(148, 163, 184, 0.24);
+  --bg-canvas: #0b0908;
+  --bg-sidebar: #100c0a;
+  --bg-surface: #161210;
+  --bg-elevated: #1f1813;
+  --bg-hover: #2a2019;
+  --border-subtle: rgba(214, 170, 116, 0.14);
+  --border-strong: rgba(214, 170, 116, 0.26);
 
-  --text-primary: #f1f5f9;
-  --text-secondary: #94a3b8;
-  --text-muted: #64748b;
+  --text-primary: #f5ede3;
+  --text-secondary: #c5b49c;
+  --text-muted: #8a7a64;
 
-  --accent-primary: #38bdf8;
-  --accent-primary-dim: rgba(56, 189, 248, 0.14);
+  --accent-maroon: #7f1d1d;
+  --accent-maroon-deep: #4c0e0e;
+  --accent-primary: #ea580c;
+  --accent-primary-dim: rgba(234, 88, 12, 0.16);
+  --accent-maroon-dim: rgba(127, 29, 29, 0.24);
+  --accent-stripes: #14532d;
+  --accent-stripes-deep: #052e16;
   --accent-success: #10b981;
   --accent-success-dim: rgba(16, 185, 129, 0.14);
   --accent-warning: #f59e0b;
@@ -53,12 +58,32 @@ html, body, #root {
   font-size: 12px;
 }
 
+/* Dark-green striped accent strip */
+.stripe-bar {
+  height: 8px;
+  width: 100%;
+  min-height: 8px;
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--accent-stripes) 0px,
+    var(--accent-stripes) 14px,
+    var(--accent-stripes-deep) 14px,
+    var(--accent-stripes-deep) 28px
+  );
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.45);
+  flex-shrink: 0;
+}
+
 /* App Shell */
 .app-shell {
   display: grid;
   grid-template-columns: 248px 1fr;
+  grid-template-rows: auto 1fr;
   height: 100vh;
   overflow: hidden;
+}
+.app-shell > .stripe-bar {
+  grid-column: 1 / -1;
 }
 
 .sidebar {
@@ -81,12 +106,12 @@ html, body, #root {
   width: 34px;
   height: 34px;
   border-radius: 9px;
-  background: linear-gradient(135deg, #0ea5e9 0%, #2563eb 100%);
+  background: linear-gradient(135deg, #7f1d1d 0%, #c2410c 70%, #ea580c 100%);
   display: flex;
   align-items: center;
   justify-content: center;
   color: #fff;
-  box-shadow: 0 4px 16px rgba(14, 165, 233, 0.3);
+  box-shadow: 0 4px 16px rgba(194, 65, 12, 0.4);
 }
 
 .brand-title {
@@ -131,9 +156,10 @@ html, body, #root {
 }
 
 .nav-item.active {
-  background: var(--accent-primary-dim);
-  color: var(--accent-primary);
-  border-color: rgba(56, 189, 248, 0.25);
+  background: var(--accent-maroon-dim);
+  color: #fdba74;
+  border-color: rgba(234, 88, 12, 0.38);
+  box-shadow: inset 3px 0 0 var(--accent-primary);
 }
 
 .nav-item-left {
@@ -157,7 +183,7 @@ html, body, #root {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: rgba(12, 16, 23, 0.85);
+  background: rgba(16, 12, 10, 0.88);
   backdrop-filter: blur(10px);
 }
 
@@ -262,13 +288,15 @@ html, body, #root {
 }
 
 .btn-primary {
-  background: #0284c7;
-  border-color: #0ea5e9;
+  background: linear-gradient(135deg, #7f1d1d 0%, #b3410a 65%, #c2410c 100%);
+  border-color: #ea580c;
   color: #fff;
+  box-shadow: 0 2px 10px rgba(194, 65, 12, 0.3);
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: #0369a1;
+  background: linear-gradient(135deg, #8f2626 0%, #c2410c 65%, #ea580c 100%);
+  border-color: #fb923c;
 }
 
 .btn-danger {
@@ -306,6 +334,7 @@ html, body, #root {
 
 .input:focus, .select:focus, .textarea:focus {
   border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px rgba(234, 88, 12, 0.18);
 }
 
 /* Badges */
@@ -373,7 +402,7 @@ html, body, #root {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(3, 6, 12, 0.76);
+  background: rgba(10, 7, 4, 0.78);
   backdrop-filter: blur(4px);
   display: flex;
   align-items: center;

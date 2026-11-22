@@ -217,6 +217,7 @@ export const App: React.FC = () => {
 
   return (
     <div className="app-shell">
+      <div className="stripe-bar" aria-hidden="true" />
       <aside className="sidebar">
         <div className="brand-box">
           <div className="brand-mark">
@@ -224,7 +225,7 @@ export const App: React.FC = () => {
           </div>
           <div>
             <div className="brand-title">HOME OS</div>
-            <div className="brand-sub">Command Environment v1.0</div>
+            <div className="brand-sub">Command Environment v2.0.0</div>
           </div>
         </div>
 

@@ -6,11 +6,11 @@ This is the release gate for the intended home-alpha. Every row marked **VERIFIE
 
 | Artifact | SHA-256 (manifest) | Verified |
 |---|---|---|
-| `home_os-2.0.0-py3-none-any.whl` | `38aa3544…` | yes (checksums re-checked) |
-| `home_os-2.0.0.tar.gz` | `4117467c…` | yes |
-| `homeos_linux_agent-2.0.0-py3-none-any.whl` | `0368c39c…` | yes |
-| `homeos_linux_agent-2.0.0.tar.gz` | `df326603…` | yes |
-| `home-os-desktop-bundle-2.0.0.tar.gz` | `de231def…` | yes |
+| `home_os-2.0.0-py3-none-any.whl` | `b94b4762…` | yes (checksums re-checked) |
+| `home_os-2.0.0.tar.gz` | `4baa8b97…` | yes |
+| `homeos_linux_agent-2.0.0-py3-none-any.whl` | `84b76db8…` | yes |
+| `homeos_linux_agent-2.0.0.tar.gz` | `b3b20735…` | yes |
+| `home-os-desktop-bundle-2.0.0.tar.gz` | `5a27990d…` | yes (re-verified after maroon/dark-orange theme + v2.0.0 override) |
 
 - Manifest and `SHA256SUMS.txt` regenerate from the current source (`bash scripts/build-release.sh`).
 - The rebuilt wheels carry the 2026-11-22 fixes (verified by inspektion of installed artifacts, not just hashes).
@@ -22,6 +22,7 @@ This is the release gate for the intended home-alpha. Every row marked **VERIFIE
 - `homeos serve --host 127.0.0.1 --port 18423` → `GET /api/v1/health` returns **200** (`{"status":"ok","version":"2.0.0","api_revision":"2.0.0",...}`)
 - `GET /` serves the compiled SPA (HTTP 200, text/html)
 - `homeos verify-audit` → `{"valid": true, "checked_entries": 1, "head_hash": "c213b362…"}`
+- SPA re-verified after 2026-11-22 maroon/dark-orange/green-striped theme re-theme: health 2.0.0/2.0.0, `GET /` 200, `assets/index-DOwYG2Oc.css` 200, `assets/index-BgvbTPfz.js` referenced by index.html
 - Desktop SPA installed into `~/.local/share/home-os/ui-dist` by the installer; `GET /` serves the SPA (200, text/html) and `GET /assets/*.js` serves the compiled bundle (200, text/javascript)
 
 ## 3. Upgrade path
