@@ -73,7 +73,7 @@ class LinuxDeviceAgent:
             "os_name": "Linux",
             "os_version": platform.release(),
             "capabilities": self.capabilities.build_capabilities_manifest(),
-            "metadata": {"agent_version": "1.0.0"},
+            "metadata": {"agent_version": "2.0.0"},
         }
         if http_client is not None:
             resp = await http_client.post(f"{self.hub_http_url}/api/v1/pairing/complete", json=payload)

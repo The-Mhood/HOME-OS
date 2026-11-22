@@ -1,6 +1,6 @@
 # HOME OS — System Requirements & Architecture Specification
 
-**Version:** 1.0.0  
+**Version:** 2.0.0  
 **Architecture Style:** Modular Monolith Core + Authenticated Bidirectional Adapter Bus + Electron/React Desktop Command Shell
 
 ---

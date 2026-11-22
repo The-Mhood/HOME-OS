@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     )
 
     app_name: str = "HOME OS"
-    app_version: str = "1.0.0"
+    app_version: str = "2.0.0"
     # Secure-by-default: never bind to public interfaces unless explicitly configured
     bind_host: str = Field(default="127.0.0.1")
     bind_port: int = Field(default=8420)

@@ -16,7 +16,7 @@ struct HomeOsMacAgentMain {
 
     private static func printUsage() {
         print("""
-        HOME OS Native macOS Agent v1.0.0
+        HOME OS Native macOS Agent v2.0.0
 
         Usage:
           homeos-mac-agent pair --hub <http://127.0.0.1:8420> --session <SESSION_ID> --pin <6_DIGIT_PIN> [--name "My Mac"] [--share-dir ~/HomeOS-Shared]
@@ -88,7 +88,7 @@ struct HomeOsMacAgentMain {
                 "os_name": "macOS",
                 "os_version": info.operatingSystemVersionString,
                 "capabilities": provider.buildCapabilitiesManifest(),
-                "metadata": ["agent_version": "1.0.0", "shared_root": sharedDir.path],
+                "metadata": ["agent_version": "2.0.0", "shared_root": sharedDir.path],
             ]
 
             do {

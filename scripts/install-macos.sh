@@ -9,7 +9,8 @@ BIN_DIR="${HOME}/.local/bin"
 MODE="${1:-}"
 
 echo "============================================================"
-echo "  HOME OS v1.0.0 — macOS Installer (Core + UI + Mac Agent)"
+VERSION="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "${ROOT_DIR}/desktop/package.json")"
+echo "  HOME OS v${VERSION} — macOS Installer (Core + UI + Mac Agent)"
 echo "============================================================"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
@@ -109,9 +110,9 @@ echo "[2/4] Building HOME OS Desktop Command Environment..."
   mkdir -p "${INSTALL_DIR}/ui-dist"
   ./node_modules/.bin/vite build "${ROOT_DIR}/desktop" --outDir "${INSTALL_DIR}/ui-dist" --emptyOutDir
 
-  if [[ ! -f "${INSTALL_DIR}/ui-dist/index.html" ]] && [[ -f "${ROOT_DIR}/releases/home-os-desktop-bundle-1.0.0.tar.gz" ]]; then
+  if [[ ! -f "${INSTALL_DIR}/ui-dist/index.html" ]] && [[ -f "${ROOT_DIR}/releases/home-os-desktop-bundle-${VERSION}.tar.gz" ]]; then
     TMP_BUNDLE="$(mktemp -d)"
-    tar -xzf "${ROOT_DIR}/releases/home-os-desktop-bundle-1.0.0.tar.gz" -C "${TMP_BUNDLE}"
+    tar -xzf "${ROOT_DIR}/releases/home-os-desktop-bundle-${VERSION}.tar.gz" -C "${TMP_BUNDLE}"
     tar -cf - -C "${TMP_BUNDLE}/dist" . | tar -xf - -C "${INSTALL_DIR}/ui-dist"
     rm -rf "${TMP_BUNDLE}"
   fi

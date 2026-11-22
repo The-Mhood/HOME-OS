@@ -9,6 +9,10 @@ if [[ ! -x "${PYTHON_BIN}" ]]; then
   PYTHON_BIN="$(command -v python3)"
 fi
 
+VERSION="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "${ROOT_DIR}/desktop/package.json")"
+RELEASE_DIR="${ROOT_DIR}/releases"
+
+export HOMEOS_RELEASE_VERSION="${VERSION}"
 rm -rf "${RELEASE_DIR}"
 mkdir -p "${RELEASE_DIR}"
 
@@ -23,7 +27,7 @@ rm -rf "${ROOT_DIR}/agents/linux/build" "${ROOT_DIR}/agents/linux/src/homeos_lin
 echo "[3/4] Building HOME OS Desktop Production Bundle..."
 if [[ -d "${ROOT_DIR}/desktop/node_modules" ]]; then
   (cd "${ROOT_DIR}/desktop" && npm run build)
-  tar -czf "${RELEASE_DIR}/home-os-desktop-bundle-1.0.0.tar.gz" \
+  tar -czf "${RELEASE_DIR}/home-os-desktop-bundle-${VERSION}.tar.gz" \
     -C "${ROOT_DIR}/desktop" dist dist-electron package.json electron-builder.yml entitlements.mac.plist
 fi
 
@@ -36,6 +40,7 @@ echo "[4/4] Generating cryptographic SHA-256 release manifest..."
 "${PYTHON_BIN}" - <<'PY'
 import hashlib
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -55,7 +60,7 @@ for p in sorted(rel_dir.iterdir()):
 
 manifest = {
     "product": "HOME OS",
-    "version": "1.0.0",
+    "version": os.environ.get("HOMEOS_RELEASE_VERSION", "unknown"),
     "generated_at": datetime.now(timezone.utc).isoformat(),
     "artifacts": artifacts,
 }

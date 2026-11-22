@@ -3,7 +3,7 @@
 | Document Metadata | Details |
 | :--- | :--- |
 | **System Name** | **HOME OS** — Sovereign Local-First Cross-Device & Ambient Home Operating System |
-| **Reported Baseline** | Handoff claims `v1.4.0`; `PROJECT_STATUS.md` reports `v1.0.0`. Current version is **unverified pending tag/manifest audit**. |
+| **Reported Baseline** | Handoff claims `v1.4.0`. On 2026-11-22 the version was deliberately overridden to `2.0.0` across packages, health `version`/`api_revision`, desktop, and artifacts (owner-directed); this handoff doc retains the historical `v1.4.0` label only for traceability. |
 | **Repository & Branch** | `The-Mhood/HOME-OS` (`arena/7bd92795-home-os`). Branch head has advanced since the original handoff; inspect Git before relying on historical SHAs. |
 | **Codebase Footprint** | ~25,135+ lines of production code across 100+ source files (Python, TypeScript/React/Electron, Swift, Kotlin, C#/.NET 8), 17 relational tables, 8 concrete device protocol adapters |
 | **Historical Verification Claim** | This handoff reports **26 / 26** backend tests and **2 / 2** UI suites; `PROJECT_STATUS.md` reports **20** backend tests. Neither total has been rerun for this sprint kickoff. Treat all counts and release-bundle claims as **unverified until reproduced**. |

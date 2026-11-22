@@ -15,12 +15,12 @@
 | Desktop UI suite | `cd desktop && npm test` | **2/2 passed** | Full 9-view interaction smoke test. |
 | Desktop build | `cd desktop && npm run build` | **Clean** (tsc -b + vite build + electron tsc) | 292.51 kB bundle, gzip 79.71 kB. |
 | Alembic migration | `export HOMEOS_DATABASE_URL=sqlite:///<tmp>/ci.db && .venv/bin/alembic upgrade head` / `downgrade base` / `upgrade head` | **Round-trip OK** | Newly fixed: env.py now honors `HOMEOS_DATABASE_URL` (app-consistent) and creates missing parent dirs; CI uses the sync URL. |
-| Core CLI / hub smoke | `homeos migrate` + `homeos serve` → `GET /api/v1/health` | **HTTP 200** | `{"status":"ok","version":"1.0.0",...}`. |
+| Core CLI / hub smoke | `homeos migrate` + `homeos serve` → `GET /api/v1/health` | **HTTP 200** | `{"status":"ok","version":"2.0.0","api_revision":"2.0.0",...}`. |
 | Release artifacts | `bash scripts/build-release.sh` | **5 artifacts, checksums verified** | wheels carry the 2026-11-22 fixes; desktop bundle rebuilt with `npm ci && npm run build`; manifest regenerated 2026-11-22. |
 | Clean install (artifacts) | `bash scripts/install-local.sh --use-release-artifacts` + `homeos serve` | **migrate → serve → health 200 → verify-audit valid** | Repeat run = idempotent upgrade path. See `docs/09-home-alpha-release-checklist.md`. |
 | CI release pipeline (run 45020053975) | `.github/workflows/ci-release.yml` | **RED** — Linux/Windows/Desktop-UI pass (Core 42s, Windows 1m4s, Desktop 18s); macOS Swift build and Android Kotlin build fail with logs unreachable from the sandbox (results-receiver blocked); Electron installer matrix tag-gated (skipped) | macos-14 runner reference fixed 2026-11-22 (retired 2026-11-02); actual Swift/Android failure detail unverified here |
 
-**Known version-label inconsistency (documented, not a blocker):** package/releases/`pyproject.toml` and the health `version` field report `1.0.0`, while the handoff docs and the hardcoded health `api_revision` field report `1.4.0`. `api_revision` is load-bearing for the Electron stale-instance migration guard (`desktop/electron/main.ts`); do not remove it without replacing the guard. Do **not** bump version numbers without an explicit release decision.
+**Version override (owner-directed 2026-11-22):** the former `1.0.0`/`1.4.0` split was resolved by overriding the version to `2.0.0` everywhere — packages (`pyproject.toml` files, `__init__.py` files, `config.py` app_version, Linux agent client metadata, macOS/Windows agents, Android/iOS companions, Electron `main.ts` platform-info, health `version` + `api_revision`, unified `2.0.0` desktop bundle filenames, and the Electron stale-instance guard now trusts only the current `2.0.0` revision). `api_revision` remains load-bearing for `desktop/electron/main.ts`.
 
 ## 1. Milestone Completion Tracker
 
@@ -54,7 +54,7 @@
 |---|---|---|---|
 | **Backend + Native Linux Agent + Security + Load** | `.venv/bin/pytest -v --cov=home_os --cov=homeos_linux_agent` | 20 passed in 7.80s (75% line coverage across 3,806 statements) | Argon2id, AES-256-GCM tamper detection, ECDSA TLS fingerprint, HMAC replay rejection, XXE UPnP protection, path traversal jailing, Alembic upgrade/downgrade, Google TV TLS v2 framing, Home Assistant post-command state verification, Matter JSON-RPC WS server, live dual-Linux-agent E2E file relay, emergency lockdown, **25 concurrent simulated devices (<50ms avg command latency)** |
 | **Desktop UI (All 9 Views + TypeScript + Production Bundle)** | `cd desktop && npm test && npm run build` | 2 test suites / all 9 views verified, zero TypeScript errors | First-Run Vault Setup, Command Centre metrics, unpaired vs paired device badges, honest unavailable capability disclosures, WhatsApp notification mirroring transparency, file browser, automation approval queue, SHA-256 audit chain UI verification, and settings |
-| **Release Artifacts & SHA-256 Manifest** | `bash scripts/build-release.sh` | 5 verified artifacts (~264 KB total) | `home_os-1.0.0-py3-none-any.whl`, `home_os-1.0.0.tar.gz`, `homeos_linux_agent-1.0.0-py3-none-any.whl`, `homeos_linux_agent-1.0.0.tar.gz`, `home-os-desktop-bundle-1.0.0.tar.gz`, `SHA256SUMS.txt`, `manifest.json` |
+| **Release Artifacts & SHA-256 Manifest** | `bash scripts/build-release.sh` | 5 verified artifacts (~264 KB total) | `home_os-2.0.0-py3-none-any.whl`, `home_os-2.0.0.tar.gz`, `homeos_linux_agent-2.0.0-py3-none-any.whl`, `homeos_linux_agent-2.0.0.tar.gz`, `home-os-desktop-bundle-2.0.0.tar.gz`, `SHA256SUMS.txt`, `manifest.json` |
 
 ---
 

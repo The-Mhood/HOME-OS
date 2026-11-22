@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "home-os"
-version = "1.0.0"
+version = "2.0.0"
 description = "HOME OS — Universal Personal Device Management Platform Core Backend"
 readme = "README.md"
 requires-python = ">=3.11"

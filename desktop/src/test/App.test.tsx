@@ -283,7 +283,7 @@ function installMockApi() {
       return new Response(
         JSON.stringify({
           app_name: 'HOME OS',
-          version: '1.0.0',
+          version: '2.0.0',
           bind_host: '127.0.0.1',
           bind_port: 8420,
           database_dialect: 'sqlite',

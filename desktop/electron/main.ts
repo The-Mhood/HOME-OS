@@ -137,8 +137,8 @@ async function ensureLocalBackendRunning(port: string): Promise<boolean> {
     if (process.env.HOMEOS_EXTERNAL_BACKEND === '1') {
       return true;
     }
-    // If an older loopback-only or pre-1.4.0 instance is holding port 8420, replace it
-    if (initial.bindHost === '0.0.0.0' && initial.apiRevision === '1.4.0') {
+    // If an older pre-2.0 instance or a loopback-only instance is holding port 8420, replace it
+    if (initial.bindHost === '0.0.0.0' && initial.apiRevision === '2.0.0') {
       return true;
     }
     stopStalePortListener(port);
@@ -283,7 +283,7 @@ ipcMain.handle('homeos:platform-info', () => ({
   shell: 'electron',
   platform: process.platform,
   arch: process.arch,
-  version: '1.0.0',
+  version: '2.0.0',
 }));
 
 app.whenReady().then(async () => {

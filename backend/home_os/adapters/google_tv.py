@@ -86,7 +86,7 @@ def _frame_message(inner: bytes) -> bytes:
 
 def encode_remote_configure_frame(model: str = "HOME OS Controller", vendor: str = "HOME OS") -> bytes:
     # Android TV Remote v2 RemoteMessage field 1 = RemoteConfigure
-    dev_info = _pb_str(1, model) + _pb_str(2, vendor) + _pb_uint32(3, 1) + _pb_str(4, "1.0.0")
+    dev_info = _pb_str(1, model) + _pb_str(2, vendor) + _pb_uint32(3, 1) + _pb_str(4, "2.0.0")
     cfg = _pb_uint32(1, 622) + _pb_bytes(2, dev_info)
     return _frame_message(_pb_bytes(1, cfg))
 
