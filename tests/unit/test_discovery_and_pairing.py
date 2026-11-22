@@ -675,3 +675,125 @@ exit 0
 
 
 
+
+
+@pytest.mark.asyncio
+async def test_stale_and_returning_unpaired_devices(tmp_data_dir: Path):
+    """Unpaired devices that go silent are marked stale; a device that
+    reappears is recognized as returning and un-marked. Enrolled devices are
+    never auto-marked stale."""
+    from datetime import datetime, timezone, timedelta
+    from home_os.adapters.base import DiscoveredEndpoint
+
+    engine, SessionLocal = create_db_engine_and_session(f"sqlite:///{tmp_data_dir / 'stale.db'}")
+    Base.metadata.create_all(bind=engine)
+    bus = EventBus()
+    discovery = DiscoveryService(event_bus=bus)
+
+    now = datetime.now(timezone.utc)
+    stale_old = now - timedelta(hours=2)
+
+    with SessionLocal() as db:
+        stale_device = Device(
+            hardware_fingerprint="fp-stale-1",
+            name="Old Stale PC",
+            category="desktop",
+            manufacturer=None,
+            model=None,
+            os_name=None,
+            ip_address="192.168.1.50",
+            mac_address=None,
+            port=None,
+            hostname=None,
+            lifecycle_state="identified",
+            discovery_source="arp",
+            adapter_type="generic_network",
+            connection_status="unpaired",
+            integration_health="unverified_until_paired",
+            metadata_json={},
+            first_seen_at=stale_old,
+            last_seen_at=stale_old,
+        )
+        enrolled_device = Device(
+            hardware_fingerprint="fp-enrolled-1",
+            name="Enrolled Mac",
+            category="laptop",
+            manufacturer=None,
+            model=None,
+            os_name=None,
+            ip_address="192.168.1.60",
+            mac_address=None,
+            port=None,
+            hostname=None,
+            lifecycle_state="authenticated",
+            discovery_source="mdns",
+            adapter_type="macos_agent",
+            connection_status="online",
+            integration_health="healthy",
+            metadata_json={},
+            first_seen_at=stale_old,
+            last_seen_at=stale_old,
+        )
+        fresh_device = Device(
+            hardware_fingerprint="fp-fresh-1",
+            name="Fresh Bulb",
+            category="smarthome",
+            manufacturer=None,
+            model=None,
+            os_name=None,
+            ip_address="192.168.1.70",
+            mac_address=None,
+            port=None,
+            hostname=None,
+            lifecycle_state="discovered",
+            discovery_source="ssdp",
+            adapter_type="generic_network",
+            connection_status="unpaired",
+            integration_health="unverified_until_paired",
+            metadata_json={},
+            first_seen_at=now,
+            last_seen_at=now,
+        )
+        db.add_all([stale_device, enrolled_device, fresh_device])
+        db.commit()
+
+        # 1. Only the old unpaired device should be marked stale.
+        marked = await discovery.mark_stale_unpaired_devices(db, stale_after_seconds=3600.0)
+        marked_ids = {d.id for d in marked}
+        assert stale_device.id in marked_ids
+        assert enrolled_device.id not in marked_ids  # enrolled devices untouched
+        assert fresh_device.id not in marked_ids      # fresh devices untouched
+
+        db.refresh(stale_device)
+        assert stale_device.connection_status == "stale"
+        db.refresh(enrolled_device)
+        assert enrolled_device.connection_status == "online"
+
+        # 2. Re-ingesting the stale device must reset it to unpaired and publish
+        #    a "returning" event.
+        import asyncio
+        q = bus.create_queue()
+        ep = DiscoveredEndpoint(
+            hardware_fingerprint="fp-stale-1",
+            discovery_source="arp",
+            ip_address="192.168.1.50",
+            raw_properties={"name": "Old Stale PC"},
+        )
+        await discovery.ingest_discovered_endpoints(db, [ep])
+
+        db.refresh(stale_device)
+        assert stale_device.connection_status == "unpaired"
+
+        # "device.returning" must have been published for the stale device.
+        returning_events: list[dict] = []
+        while not q.empty():
+            env = q.get_nowait()
+            if env.get("event_type") == "device.returning":
+                returning_events.append(env["payload"])
+        assert any(e["device_id"] == stale_device.id for e in returning_events)
+
+        # 3. The returned event is only fired for previously-stale devices.
+        db.refresh(fresh_device)
+        assert fresh_device.connection_status == "unpaired"
+
+        bus.remove_queue(q)

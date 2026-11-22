@@ -85,6 +85,27 @@ MACOS_ARP_LINE_RE = re.compile(
 CGNAT_IPV4_NET = ipaddress.ip_network("100.64.0.0/10")
 
 
+def _as_naive_utc(dt):
+    """Normalize a stored datetime to naive UTC for comparison.
+
+    SQLite returns naive datetimes even when tz-aware values were stored, and
+    SQLAlchemy with timezone=True may return aware ones — handle both.
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is not None:
+        return dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
+
+
+def _is_stale_device(device: "Device", now_naive, stale_after_seconds: float) -> bool:
+    """An unpaired/discovered device is stale when nothing has been heard from it."""
+    if device.last_seen_at is None:
+        return False
+    last = _as_naive_utc(device.last_seen_at)
+    return (now_naive - last).total_seconds() > stale_after_seconds
+
+
 def is_lan_or_cgnat_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     """True for RFC1918/ULA private IPs as well as RFC6598 100.64.0.0/10 Wi-Fi/CPE subnets."""
     if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
@@ -604,6 +625,7 @@ class DiscoveryService:
         endpoints.extend(arp_endpoints)
 
         devices = await self.ingest_discovered_endpoints(db, endpoints, actor_user_id=actor_user_id)
+        await self.mark_stale_unpaired_devices(db)
         return devices
 
     async def _try_reverse_hostname(self, ip_addr: str) -> str | None:
@@ -1061,6 +1083,60 @@ class DiscoveryService:
 
         return endpoints
 
+    async def mark_stale_unpaired_devices(
+        self,
+        db: Session,
+        *,
+        stale_after_seconds: float = 3600.0,
+    ) -> list[Device]:
+        """Flag discovered/identified devices that went silent as stale.
+
+        Sleeping, asleep-in-a-box and unplugged unpaired devices must not keep
+        the bright ``unpaired`` badge forever: after ``stale_after_seconds``
+        without a sighting they are marked ``connection_status="stale"``.
+        Enrolled/authenticated devices are never auto-marked here — their
+        connected-state machine (agent WebSocket sessions) owns their lifecycle.
+        """
+        now = datetime.now(timezone.utc)
+        now_naive = _as_naive_utc(now)
+        candidates = (
+            db.execute(
+                select(Device).where(
+                    Device.lifecycle_state.in_(["discovered", "identified"]),
+                    Device.connection_status != "stale",
+                )
+            )
+            .scalars()
+            .all()
+        )
+        newly_stale: list[Device] = []
+        for device in candidates:
+            if _is_stale_device(device, now_naive, stale_after_seconds):
+                device.connection_status = "stale"
+                newly_stale.append(device)
+        if not newly_stale:
+            return []
+        append_audit_log(
+            db,
+            severity="info",
+            category="discovery",
+            event_type="discovery.device_stale",
+            actor_type="system",
+            actor_id=None,
+            outcome="success",
+            details={
+                "stale_count": len(newly_stale),
+                "device_ids": [d.id for d in newly_stale],
+                "stale_after_seconds": stale_after_seconds,
+            },
+        )
+        db.commit()
+        await self.event_bus.publish(
+            "discovery.stale_marked",
+            {"stale_count": len(newly_stale), "timestamp": now.isoformat()},
+        )
+        return newly_stale
+
     async def ingest_discovered_endpoints(
         self,
         db: Session,
@@ -1150,7 +1226,19 @@ class DiscoveryService:
                 )
                 touched.append(device)
             else:
+                was_stale = existing.connection_status == "stale"
                 existing.last_seen_at = now
+                if was_stale:
+                    existing.connection_status = "unpaired"
+                    await self.event_bus.publish(
+                        "device.returning",
+                        {
+                            "device_id": existing.id,
+                            "device_name": existing.name,
+                            "returning": True,
+                            "timestamp": now.isoformat(),
+                        },
+                    )
                 if ep.ip_address:
                     existing.ip_address = ep.ip_address
                 if ep.port and not existing.port:
