@@ -163,17 +163,24 @@ class LinuxCapabilityProvider:
         except OSError:
             load1 = load5 = load15 = 0.0
 
-        # Memory info from /proc/meminfo
+        # Memory info from /proc/meminfo. On non-Linux hosts /proc/meminfo does
+        # not exist — report memory as unavailable (None) instead of fabricating 0.
+        meminfo = Path("/proc/meminfo")
         mem_total_kb = 0
         mem_avail_kb = 0
-        meminfo = Path("/proc/meminfo")
+        memory_available = False
         if meminfo.exists():
             for line in meminfo.read_text(encoding="utf-8", errors="ignore").splitlines():
                 if line.startswith("MemTotal:"):
                     mem_total_kb = int(line.split()[1])
                 elif line.startswith("MemAvailable:"):
                     mem_avail_kb = int(line.split()[1])
-        mem_used_pct = round(((mem_total_kb - mem_avail_kb) / mem_total_kb) * 100.0, 1) if mem_total_kb else 0.0
+            memory_available = mem_total_kb > 0
+        mem_used_pct = (
+            round(((mem_total_kb - mem_avail_kb) / mem_total_kb) * 100.0, 1)
+            if memory_available
+            else None
+        )
 
         # Uptime
         uptime_seconds = 0.0
@@ -200,10 +207,16 @@ class LinuxCapabilityProvider:
                 break
 
         disp_kind, _, _ = self.detect_display_session()
+        # health_score is only meaningful when memory readback worked; otherwise
+        # report it as unavailable (None) rather than a misleading number.
+        if memory_available:
+            health_score = 100 if disk_used_pct < 92 and mem_used_pct < 95 else 75
+        else:
+            health_score = None
         return {
             "battery_level": battery_level,
             "is_charging": is_charging,
-            "health_score": 100 if disk_used_pct < 92 and mem_used_pct < 95 else 75,
+            "health_score": health_score,
             "attributes": {
                 "hostname": socket.gethostname(),
                 "kernel": platform.release(),
@@ -212,7 +225,7 @@ class LinuxCapabilityProvider:
                 "load_avg_1m": round(load1, 2),
                 "load_avg_5m": round(load5, 2),
                 "load_avg_15m": round(load15, 2),
-                "memory_total_mb": round(mem_total_kb / 1024),
+                "memory_total_mb": round(mem_total_kb / 1024) if memory_available else None,
                 "memory_used_percent": mem_used_pct,
                 "disk_total_gb": round(disk.total / (1024**3), 1),
                 "disk_used_percent": disk_used_pct,

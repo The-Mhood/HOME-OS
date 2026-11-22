@@ -1023,7 +1023,7 @@ export const DeviceDetailsView: React.FC<Props> = ({
                   .filter(([, v]) => typeof v !== 'object')
                   .map(([k, v]) => (
                     <div key={k}>
-                      {k}: <strong style={{ color: 'var(--text-primary)' }}>{String(v)}</strong>
+                      {k}: <strong style={{ color: 'var(--text-primary)' }}>{v === null || v === undefined ? 'N/A — unavailable' : String(v)}</strong>
                     </div>
                   ))}
               </div>

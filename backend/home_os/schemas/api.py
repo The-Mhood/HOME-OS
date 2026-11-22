@@ -93,7 +93,7 @@ class SubmitCommandRequest(BaseModel):
 class AgentTelemetryPayload(BaseModel):
     battery_level: int | None = Field(default=None, ge=0, le=100)
     is_charging: bool | None = None
-    health_score: int = Field(default=100, ge=0, le=100)
+    health_score: int | None = Field(default=None, ge=0, le=100)
     attributes: dict[str, Any] = Field(default_factory=dict)
     capabilities: list[dict[str, Any]] | None = None
     media_session: dict[str, Any] | None = None

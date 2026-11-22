@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+import platform
 import socket
 from pathlib import Path
 import httpx
@@ -9,6 +10,12 @@ import uvicorn
 from home_os.config import Settings
 from home_os.main import create_app
 from homeos_linux_agent.client import LinuxDeviceAgent
+
+# The live dual-agent E2E test enrolls the Linux agent, which reads Linux-only
+# /proc, /sys/class/power_supply and /proc/<pid>/{comm,cmdline}. It must only
+# run on a Linux host; on other platforms it is skipped upstream (rather than
+# asserting Linux-specific telemetry that cannot be read there).
+@pytest.mark.skipif(platform.system() != "Linux", reason="live Linux agent E2E requires a Linux host")
 
 
 def _free_tcp_port() -> int:

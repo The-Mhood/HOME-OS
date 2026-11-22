@@ -238,6 +238,13 @@ class AndroidTvRemoteAdapter(BaseDeviceAdapter):
             await asyncio.wait_for(reader.readexactly(first_len[0]), timeout=2.5)
         writer.write(encode_remote_configure_frame())
         await writer.drain()
+        # CONSUME the server's acknowledgement frame for RemoteConfigure.
+        # Without consuming it, the stale ACK is read as the acknowledgement of
+        # the next command (e.g. navigation) while the app-launch command then
+        # reads the navigation ACK instead — a missed frame race.
+        ack_len = await asyncio.wait_for(reader.read(1), timeout=2.5)
+        if ack_len:
+            await asyncio.wait_for(reader.readexactly(ack_len[0]), timeout=2.5)
         self._connections[device_id] = (reader, writer)
         return reader, writer
 

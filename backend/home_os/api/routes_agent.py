@@ -194,7 +194,7 @@ async def agent_bidirectional_websocket(
                     if dev is not None:
                         dev.last_seen_at = datetime.now(timezone.utc)
                         dev.connection_status = "online"
-                        dev.health_score = int(data.get("health_score", 100))
+                        dev.health_score = data.get("health_score")
                         if "battery_level" in data and data["battery_level"] is not None:
                             dev.battery_level = int(data["battery_level"])
                         if "is_charging" in data:
