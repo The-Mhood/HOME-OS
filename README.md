@@ -4,7 +4,7 @@
 
 HOME OS is an installable, local-first personal command environment that enables a single authorized owner to discover, pair, inspect, organize, automate, and control permitted devices across mobile phones, computers, televisions, speakers, and smart-home ecosystems—without cloud lock-in, fabricated telemetry, or OS sandbox bypasses.
 
-> **Executive & Principal Engineering Handoff (`v1.4.0`)**: See [`docs/EXECUTIVE_HANDOFF_AND_WORLD_CLASS_ROADMAP.md`](docs/EXECUTIVE_HANDOFF_AND_WORLD_CLASS_ROADMAP.md) for the complete technical due-diligence handoff, 8-adapter architecture inventory, security/cryptography audit, and 18-month world-class scaling masterplan.
+> **Executive & Principal Engineering Handoff (`v1.4.0`)**: See [`docs/EXECUTIVE_HANDOFF_AND_WORLD_CLASS_ROADMAP.md`](docs/EXECUTIVE_HANDOFF_AND_WORLD_CLASS_ROADMAP.md) for the complete technical due-diligence handoff, 8-adapter architecture inventory, security/cryptography audit, and the 18-day home-alpha execution sprint.
 
 ---
 
