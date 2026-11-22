@@ -52,3 +52,18 @@ This is the release gate for the intended home-alpha. Every row marked **VERIFIE
 - [ ] Physical-device evidence attached for Android/iOS/TV/Home Assistant/Linux hosts
 - [ ] CI green on the release-tagged commit
 - [ ] No external publication without explicit owner approval
+
+## 7. CI status (recorded 2026-11-22, run 45020053975)
+
+Release-track gate — **not green**:
+
+| Job | Result | Note |
+|---|---|---|
+| Core Engine & Linux Agent (Python 3.11) | pass (42s) | 27/27 + wheels built |
+| Desktop UI & Typecheck | pass (18s) | vitest 2/2 + vite build |
+| Windows Native Agent (.NET 8) | pass (1m4s) | self-contained win-x64 publish |
+| macOS Native Agent & iOS Companion (Swift 5.9) | **fail** | `swift build -c release` step; runner label since fixed (macos-14→macos-15, macOS 14 retired 2026-11-02); job logs not downloadable from the build sandbox (results-receiver endpoint unreachable) |
+| Android Companion (Kotlin / Compose) | **fail** | `gradle testPlayStoreDebugUnitTest assemblePlayStoreDebug assembleDirectCompanionDebug` step; logs not downloadable from the build sandbox |
+| Electron Native Installers (matrix) | skipped | tag-gated (`if: startsWith(github.ref, 'refs/tags/v')`); also requires a green Release-Track gate |
+
+Swift source statically audited (`agents/macos`): API usage checked against macOS 13+ (`ProcessInfo.thermalState.rawValue`, `NSWorkspace.openApplication`, Keychain/SecItemAdd patterns, `@main` struct with static async main). No certain defect found; actual build error — including the iOS `xcodegen`/`xcodebuild` step — is not visible in this sandbox. Treat these two jobs as **unverified, reported as red**, not as green. Honest closure requires the runner logs (owner-side GitHub access) or a self-hosted/local build evidence.

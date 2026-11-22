@@ -18,6 +18,7 @@
 | Core CLI / hub smoke | `homeos migrate` + `homeos serve` → `GET /api/v1/health` | **HTTP 200** | `{"status":"ok","version":"1.0.0",...}`. |
 | Release artifacts | `bash scripts/build-release.sh` | **5 artifacts, checksums verified** | wheels carry the 2026-11-22 fixes; desktop bundle rebuilt with `npm ci && npm run build`; manifest regenerated 2026-11-22. |
 | Clean install (artifacts) | `bash scripts/install-local.sh --use-release-artifacts` + `homeos serve` | **migrate → serve → health 200 → verify-audit valid** | Repeat run = idempotent upgrade path. See `docs/09-home-alpha-release-checklist.md`. |
+| CI release pipeline (run 45020053975) | `.github/workflows/ci-release.yml` | **RED** — Linux/Windows/Desktop-UI pass (Core 42s, Windows 1m4s, Desktop 18s); macOS Swift build and Android Kotlin build fail with logs unreachable from the sandbox (results-receiver blocked); Electron installer matrix tag-gated (skipped) | macos-14 runner reference fixed 2026-11-22 (retired 2026-11-02); actual Swift/Android failure detail unverified here |
 
 **Known version-label inconsistency (documented, not a blocker):** package/releases/`pyproject.toml` and the health `version` field report `1.0.0`, while the handoff docs and the hardcoded health `api_revision` field report `1.4.0`. `api_revision` is load-bearing for the Electron stale-instance migration guard (`desktop/electron/main.ts`); do not remove it without replacing the guard. Do **not** bump version numbers without an explicit release decision.
 
