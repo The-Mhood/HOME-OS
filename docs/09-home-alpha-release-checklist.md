@@ -22,6 +22,7 @@ This is the release gate for the intended home-alpha. Every row marked **VERIFIE
 - `homeos serve --host 127.0.0.1 --port 18423` → `GET /api/v1/health` returns **200** (`{"status":"ok","version":"1.0.0",...}`)
 - `GET /` serves the compiled SPA (HTTP 200, text/html)
 - `homeos verify-audit` → `{"valid": true, "checked_entries": 1, "head_hash": "77b148…"}`
+- Desktop SPA installed into `~/.local/share/home-os/ui-dist` by the installer; `GET /` serves the SPA (200, text/html) and `GET /assets/*.js` serves the compiled bundle (200, text/javascript)
 
 ## 3. Upgrade path
 
